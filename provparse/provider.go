@@ -10,63 +10,95 @@ import (
 	"strings"
 )
 
-type generator struct {
-	fset     *token.FileSet
-	provider string
+type provParser struct {
+	fset *token.FileSet
+	pkg  *ast.Package
+}
+
+func importInfo(imp *ast.ImportSpec) (ident string, path string, err error) {
+	path, err = strconv.Unquote(imp.Path.Value)
+	if err != nil {
+		return "", "", nil
+	}
+	if imp.Name != nil && imp.Name.Name != "" {
+		ident = imp.Name.Name
+	} else {
+		ident = filepath.Base(path)
+	}
+	return
+}
+
+func (p *provParser) fileFor(pos token.Pos) (*ast.File, error) {
+	tFile := p.fset.File(pos)
+	if tFile == nil {
+		return nil, fmt.Errorf("unable to find file from position")
+	}
+	astFile := p.pkg.Files[tFile.Name()]
+	if astFile == nil {
+		return nil, fmt.Errorf("unable to find package file for %s", tFile.Name())
+	}
+	return astFile, nil
+}
+
+func (p *provParser) selectorImports(sel *ast.SelectorExpr, pkg string) (bool, error) {
+	selID, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false, fmt.Errorf("unexpected selector %T, wanted *ast.Ident", sel.X)
+	}
+	file, err := p.fileFor(sel.Pos())
+	if err != nil {
+		return false, err
+	}
+	for _, imp := range file.Imports {
+		impID, impPath, err := importInfo(imp)
+		if err != nil {
+			return false, err
+		}
+		if selID.Name == impID && pkg == impPath {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 type schemaFunc struct {
 	Func       *ast.FuncDecl
 	CommentMap ast.CommentMap
-	Imports    map[string]string
 }
 
 func parseProviderPackage(fset *token.FileSet, pkg *ast.Package) (*Provider, error) {
+	p := &provParser{
+		fset: fset,
+		pkg:  pkg,
+	}
+
+	return p.parse()
+}
+
+func (p *provParser) parse() (*Provider, error) {
 	resFuncs := map[string]schemaFunc{}
 	schemaFuncs := map[string]schemaFunc{}
 	var provFunc *ast.FuncDecl
-	var provImports map[string]string
 
-	for _, file := range pkg.Files {
-		cmap := ast.NewCommentMap(fset, file, file.Comments)
+	for _, file := range p.pkg.Files {
+		cmap := ast.NewCommentMap(p.fset, file, file.Comments)
 
-		imports := map[string]string{}
-		for _, imp := range file.Imports {
-			if imp.Name != nil && imp.Name.Name == "_" {
-				continue
-			}
-
-			path, err := strconv.Unquote(imp.Path.Value)
-			if err != nil {
-				return nil, err
-			}
-
-			if imp.Name != nil && imp.Name.Name != "" {
-				imports[imp.Name.Name] = path
-				continue
-			}
-
-			imports[filepath.Base(path)] = path
-		}
 		for _, dec := range file.Decls {
 			switch dec := dec.(type) {
 			case *ast.FuncDecl:
 				switch {
-				case isResourceFunc(imports, dec):
+				case p.isResourceFunc(dec):
 					resFuncs[dec.Name.Name] = schemaFunc{
 						Func:       dec,
 						CommentMap: cmap,
-						Imports:    imports,
 					}
-				case isSchemaFunc(imports, dec):
+				case p.isSchemaFunc(dec):
 					schemaFuncs[dec.Name.Name] = schemaFunc{
 						Func:       dec,
 						CommentMap: cmap,
-						Imports:    imports,
 					}
-				case isProviderFunc(imports, dec):
+				case p.isProviderFunc(dec):
 					provFunc = dec
-					provImports = imports
 				}
 			}
 		}
@@ -76,7 +108,7 @@ func parseProviderPackage(fset *token.FileSet, pkg *ast.Package) (*Provider, err
 		return nil, fmt.Errorf("unable to find Provider export func")
 	}
 
-	dataSourceFuncs, resourceFuncs, err := extractProviderData(provImports, provFunc)
+	dataSourceFuncs, resourceFuncs, err := p.extractProviderData(provFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +116,7 @@ func parseProviderPackage(fset *token.FileSet, pkg *ast.Package) (*Provider, err
 	dataSources := make([]Resource, 0, len(dataSourceFuncs))
 
 	for name, fName := range dataSourceFuncs {
-		r, err := buildResource(name, resFuncs[fName], schemaFuncs)
+		r, err := p.buildResource(name, resFuncs[fName], schemaFuncs)
 		if err != nil {
 			return nil, err
 		}
@@ -95,7 +127,7 @@ func parseProviderPackage(fset *token.FileSet, pkg *ast.Package) (*Provider, err
 	resources := make([]Resource, 0, len(resourceFuncs))
 
 	for name, fName := range resourceFuncs {
-		r, err := buildResource(name, resFuncs[fName], schemaFuncs)
+		r, err := p.buildResource(name, resFuncs[fName], schemaFuncs)
 		if err != nil {
 			return nil, err
 		}
@@ -109,7 +141,7 @@ func parseProviderPackage(fset *token.FileSet, pkg *ast.Package) (*Provider, err
 	}, nil
 }
 
-func extractProviderData(imports map[string]string, provFunc *ast.FuncDecl) (map[string]string, map[string]string, error) {
+func (p *provParser) extractProviderData(provFunc *ast.FuncDecl) (map[string]string, map[string]string, error) {
 	var (
 		dsAst *ast.CompositeLit
 		rAst  *ast.CompositeLit
@@ -131,12 +163,12 @@ func extractProviderData(imports map[string]string, provFunc *ast.FuncDecl) (map
 		return dsAst == nil || rAst == nil
 	})
 
-	dataSources, err := extractResourceFuncNames(imports, dsAst)
+	dataSources, err := p.extractResourceFuncNames(dsAst)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	resources, err := extractResourceFuncNames(imports, rAst)
+	resources, err := p.extractResourceFuncNames(rAst)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -144,7 +176,7 @@ func extractProviderData(imports map[string]string, provFunc *ast.FuncDecl) (map
 	return dataSources, resources, nil
 }
 
-func extractResourceFuncNames(imports map[string]string, cl *ast.CompositeLit) (map[string]string, error) {
+func (p *provParser) extractResourceFuncNames(cl *ast.CompositeLit) (map[string]string, error) {
 	// if _, ok := cl.Type.(*ast.MapType); !ok {
 	// 	return error?
 	// }
@@ -165,7 +197,7 @@ func extractResourceFuncNames(imports map[string]string, cl *ast.CompositeLit) (
 				res[k] = f.Name
 				continue
 			case *ast.SelectorExpr:
-				if isSelectorFromPackage(imports, f, "github.com/hashicorp/terraform/helper/schema") && f.Sel.Name == "DataSourceResourceShim" {
+				if ok, _ := p.selectorImports(f, "github.com/hashicorp/terraform/helper/schema"); ok && f.Sel.Name == "DataSourceResourceShim" {
 					if shimCall, ok := v.Args[1].(*ast.CallExpr); ok {
 						if shimFunc, ok := shimCall.Fun.(*ast.Ident); ok {
 							res[k] = shimFunc.Name
@@ -182,7 +214,7 @@ func extractResourceFuncNames(imports map[string]string, cl *ast.CompositeLit) (
 	return res, nil
 }
 
-func hasResultSelectorName(imports map[string]string, f *ast.FuncDecl, i int, pack, selector string) bool {
+func (p *provParser) hasResultSelectorName(f *ast.FuncDecl, i int, pack, selector string) bool {
 	if f.Type.Results == nil || len(f.Type.Results.List) <= i {
 		return false
 	}
@@ -190,10 +222,11 @@ func hasResultSelectorName(imports map[string]string, f *ast.FuncDecl, i int, pa
 	switch dec := f.Type.Results.List[i].Type.(type) {
 	case *ast.StarExpr:
 		if sel, ok := dec.X.(*ast.SelectorExpr); ok && sel.Sel.Name == selector {
-			return isSelectorFromPackage(imports, sel, pack)
+			ok, _ := p.selectorImports(sel, pack)
+			return ok
 		}
 	case *ast.SelectorExpr:
-		if !isSelectorFromPackage(imports, dec, pack) {
+		if ok, _ := p.selectorImports(dec, pack); !ok {
 			return false
 		}
 
@@ -202,23 +235,16 @@ func hasResultSelectorName(imports map[string]string, f *ast.FuncDecl, i int, pa
 	return false
 }
 
-func isSelectorFromPackage(imports map[string]string, sel *ast.SelectorExpr, pack string) bool {
-	if id, ok := sel.X.(*ast.Ident); ok {
-		return imports[id.Name] == pack
-	}
-	return false
+func (p *provParser) isResourceFunc(f *ast.FuncDecl) bool {
+	return p.hasResultSelectorName(f, 0, "github.com/hashicorp/terraform/helper/schema", "Resource")
 }
 
-func isResourceFunc(imports map[string]string, f *ast.FuncDecl) bool {
-	return hasResultSelectorName(imports, f, 0, "github.com/hashicorp/terraform/helper/schema", "Resource")
+func (p *provParser) isProviderFunc(f *ast.FuncDecl) bool {
+	return p.hasResultSelectorName(f, 0, "github.com/hashicorp/terraform/terraform", "ResourceProvider")
 }
 
-func isProviderFunc(imports map[string]string, f *ast.FuncDecl) bool {
-	return hasResultSelectorName(imports, f, 0, "github.com/hashicorp/terraform/terraform", "ResourceProvider")
-}
-
-func isSchemaFunc(imports map[string]string, f *ast.FuncDecl) bool {
-	return hasResultSelectorName(imports, f, 0, "github.com/hashicorp/terraform/helper/schema", "Schema")
+func (p *provParser) isSchemaFunc(f *ast.FuncDecl) bool {
+	return p.hasResultSelectorName(f, 0, "github.com/hashicorp/terraform/helper/schema", "Schema")
 }
 
 func walkToSchema(n ast.Node) *ast.CompositeLit {
@@ -236,7 +262,7 @@ func walkToSchema(n ast.Node) *ast.CompositeLit {
 	return schemaAst
 }
 
-func buildResource(name string, rf schemaFunc, schemaFuncs map[string]schemaFunc) (*Resource, error) {
+func (p *provParser) buildResource(name string, rf schemaFunc, schemaFuncs map[string]schemaFunc) (*Resource, error) {
 	r := &Resource{
 		Name:             name,
 		Provider:         "azurerm",
@@ -247,7 +273,7 @@ func buildResource(name string, rf schemaFunc, schemaFuncs map[string]schemaFunc
 
 	schemaAst := walkToSchema(rf.Func.Body)
 	attrs := []Attribute{}
-	err := appendAttributes(&attrs, rf, schemaAst, schemaFuncs)
+	err := p.appendAttributes(&attrs, rf, schemaAst, schemaFuncs)
 	if err != nil {
 		return nil, fmt.Errorf("error with attributes for %s: %s", name, err)
 	}
@@ -260,7 +286,7 @@ func buildResource(name string, rf schemaFunc, schemaFuncs map[string]schemaFunc
 	return r, nil
 }
 
-func appendAttributes(attrs *[]Attribute, rf schemaFunc, schemaAst *ast.CompositeLit, schemaFuncs map[string]schemaFunc) error {
+func (p *provParser) appendAttributes(attrs *[]Attribute, rf schemaFunc, schemaAst *ast.CompositeLit, schemaFuncs map[string]schemaFunc) error {
 	for _, e := range schemaAst.Elts {
 		kv := e.(*ast.KeyValueExpr)
 
@@ -275,14 +301,14 @@ func appendAttributes(attrs *[]Attribute, rf schemaFunc, schemaAst *ast.Composit
 				return fmt.Errorf("unexpected unary operator %v", v.Op)
 			}
 			vlit := v.X.(*ast.CompositeLit)
-			att, err := buildAttribute(rf, k, vlit, schemaFuncs)
+			att, err := p.buildAttribute(rf, k, vlit, schemaFuncs)
 			if err != nil {
 				return err
 			}
 
 			*attrs = append(*attrs, att)
 		case *ast.CompositeLit:
-			att, err := buildAttribute(rf, k, v, schemaFuncs)
+			att, err := p.buildAttribute(rf, k, v, schemaFuncs)
 			if err != nil {
 				return err
 			}
@@ -300,13 +326,11 @@ func appendAttributes(attrs *[]Attribute, rf schemaFunc, schemaAst *ast.Composit
 				switch n := n.(type) {
 				case *ast.CompositeLit:
 					if sel, ok := n.Type.(*ast.SelectorExpr); ok {
-						if !isSelectorFromPackage(sf.Imports, sel, "github.com/hashicorp/terraform/helper/schema") {
-							fmt.Printf("%#v\n", sel.X)
+						if ok, _ := p.selectorImports(sel, "github.com/hashicorp/terraform/helper/schema"); !ok {
 							return true
 						}
 
 						if sel.Sel.Name != "Schema" {
-							fmt.Printf("%#v\n", sel.Sel)
 							return true
 						}
 
@@ -317,7 +341,7 @@ func appendAttributes(attrs *[]Attribute, rf schemaFunc, schemaAst *ast.Composit
 				return childAst == nil
 			})
 
-			att, err := buildAttribute(sf, k, childAst, schemaFuncs)
+			att, err := p.buildAttribute(sf, k, childAst, schemaFuncs)
 			if err != nil {
 				return err
 			}
@@ -331,7 +355,7 @@ func appendAttributes(attrs *[]Attribute, rf schemaFunc, schemaAst *ast.Composit
 	return nil
 }
 
-func buildAttribute(sf schemaFunc, name string, schema *ast.CompositeLit, schemaFuncs map[string]schemaFunc) (Attribute, error) {
+func (p *provParser) buildAttribute(sf schemaFunc, name string, schema *ast.CompositeLit, schemaFuncs map[string]schemaFunc) (Attribute, error) {
 	att := Attribute{
 		Name:        name,
 		Description: strings.TrimSpace(stringKeyValue(schema, "Description")),
@@ -350,7 +374,7 @@ func buildAttribute(sf schemaFunc, name string, schema *ast.CompositeLit, schema
 	childSchema := walkToSchema(schema)
 	if childSchema != nil {
 		atts := []Attribute{}
-		err := appendAttributes(&atts, sf, childSchema, schemaFuncs)
+		err := p.appendAttributes(&atts, sf, childSchema, schemaFuncs)
 		if err != nil {
 			return Attribute{}, err
 		}
