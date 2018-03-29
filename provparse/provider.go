@@ -66,15 +66,6 @@ type schemaFunc struct {
 	CommentMap ast.CommentMap
 }
 
-func parseProviderPackage(fset *token.FileSet, pkg *ast.Package) (*Provider, error) {
-	p := &provParser{
-		fset: fset,
-		pkg:  pkg,
-	}
-
-	return p.parse()
-}
-
 func (p *provParser) parse() (*Provider, error) {
 	resFuncs := map[string]schemaFunc{}
 	schemaFuncs := map[string]schemaFunc{}

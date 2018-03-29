@@ -1,6 +1,8 @@
 package provparse
 
+// Provider represents the data for the provider.
 type Provider struct {
+	Name        string
 	Resources   []Resource
 	DataSources []Resource
 }
@@ -15,14 +17,17 @@ func findResource(resources []Resource, name string) *Resource {
 	return nil
 }
 
+// Resource looks up a resource within the provider by name and returns nil if not found.
 func (p *Provider) Resource(name string) *Resource {
 	return findResource(p.Resources, name)
 }
 
+// DataSource looks up a data source in the provider by name and returns nil if not found.
 func (p *Provider) DataSource(name string) *Resource {
 	return findResource(p.DataSources, name)
 }
 
+// Resource represents the data for a resource or data source of the provider.
 type Resource struct {
 	Provider         string // azurerm
 	Name             string // azurerm_image
@@ -45,14 +50,17 @@ func findAttribute(atts []Attribute, name string) *Attribute {
 	return nil
 }
 
+// Attribute returns an attribute of the resource by name or nil if not found.
 func (r *Resource) Attribute(name string) *Attribute {
 	return findAttribute(r.Attributes, name)
 }
 
+// Attribute returns a child attribute by name or nil if not found.
 func (a *Attribute) Attribute(name string) *Attribute {
 	return findAttribute(a.Attributes, name)
 }
 
+// Attribute represents a data element of the resource schema.
 type Attribute struct {
 	Name        string
 	Description string

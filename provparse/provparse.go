@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// Package parses a provider package and returns the parsed data.
 func Package(path string) (*Provider, error) {
 	fset := token.NewFileSet()
 
@@ -21,8 +22,13 @@ func Package(path string) (*Provider, error) {
 			continue
 		}
 
-		//only one package
-		return parseProviderPackage(fset, pkg)
+		p := &provParser{
+			fset: fset,
+			pkg:  pkg,
+		}
+
+		//only one non-test package in the path
+		return p.parse()
 	}
 
 	return nil, fmt.Errorf("provider package not found")
