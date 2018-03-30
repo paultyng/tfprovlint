@@ -83,11 +83,6 @@
   revision = "d30f09973e19c1dfcd120b2d9c4f168e68d6b5d5"
 
 [[projects]]
-  name = "github.com/hashicorp/go-plugin"
-  packages = ["."]
-  revision = "f72692aebca2008343a9deb06ddb4b17f7051c15"
-
-[[projects]]
   name = "github.com/hashicorp/go-uuid"
   packages = ["."]
   revision = "36289988d83ca270bc07c234c36f364b0dd9c9a7"
@@ -136,18 +131,11 @@
     "helper/schema",
     "helper/shadow",
     "moduledeps",
-    "plugin",
     "plugin/discovery",
     "terraform"
   ]
   revision = "2041053ee9444fa8175a298093b55a89586a1823"
   version = "v0.10.0"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/hashicorp/yamux"
-  packages = ["."]
-  revision = "2658be15c5f05e76244154714161f17e3e77de2e"
 
 [[projects]]
   name = "github.com/jmespath/go-jmespath"
@@ -185,14 +173,12 @@
 [[projects]]
   name = "github.com/satori/go.uuid"
   packages = ["."]
-  revision = "b061729afc07e77a8aa4fad0a2fd840958f1942a"
+  revision = "f58768cc1a7a7e77a3bd49e98cdd21419399b6a3"
+  version = "v1.2.0"
 
 [[projects]]
   name = "github.com/terraform-providers/terraform-provider-template"
-  packages = [
-    ".",
-    "template"
-  ]
+  packages = ["template"]
   revision = "d8fb0821ebc320ff3750c982f14eca1e7249660d"
   version = "v1.0.0"
 
@@ -222,6 +208,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "5476429b4b8a38ae032e78bd2dfa75be0e7fc0266f9f2f7217a98cb4b5b0d5b3"
+  inputs-digest = "0bffc77c0264556ffc8c0b2cde30fe5fb90e9e914b1a4d3142bb55d59d2db1fd"
   solver-name = "gps-cdcl"
   solver-version = 1

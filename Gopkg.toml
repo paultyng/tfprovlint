@@ -24,10 +24,9 @@
 #   go-tests = true
 #   unused-packages = true
 
+[prune]
+  unused-packages = true
 
 [[constraint]]
   name = "github.com/terraform-providers/terraform-provider-template"
   version = "1.0.0"
-
-[prune]
-  unused-packages = true
