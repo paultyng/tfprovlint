@@ -284,10 +284,9 @@ func (p *provParser) lookupResourceFunc(n ast.Node, key string) (*ast.FuncDecl, 
 	switch v := v.(type) {
 	case *ast.Ident:
 		return p.findFunc(v.Name), nil
-	default:
-		return nil, fmt.Errorf("%s func value of type %T is not supported", key, v)
 	}
-	return nil, nil
+
+	return nil, fmt.Errorf("%s func value of type %T is not supported", key, v)
 }
 
 func (p *provParser) buildResource(name string, rf *ast.FuncDecl) (*Resource, error) {
