@@ -61,35 +61,49 @@ func (p *provParser) selectorImports(sel *ast.SelectorExpr, pkg string) (bool, e
 	return false, nil
 }
 
-type schemaFunc struct {
-	Func       *ast.FuncDecl
-	CommentMap ast.CommentMap
-}
-
-func (p *provParser) parse() (*Provider, error) {
-	resFuncs := map[string]schemaFunc{}
-	schemaFuncs := map[string]schemaFunc{}
-	var provFunc *ast.FuncDecl
-
+func (p *provParser) findFunc(name string) *ast.FuncDecl {
 	for _, file := range p.pkg.Files {
-		cmap := ast.NewCommentMap(p.fset, file, file.Comments)
-
 		for _, dec := range file.Decls {
 			switch dec := dec.(type) {
 			case *ast.FuncDecl:
-				switch {
-				case p.isResourceFunc(dec):
-					resFuncs[dec.Name.Name] = schemaFunc{
-						Func:       dec,
-						CommentMap: cmap,
-					}
-				case p.isSchemaFunc(dec):
-					schemaFuncs[dec.Name.Name] = schemaFunc{
-						Func:       dec,
-						CommentMap: cmap,
-					}
-				case p.isProviderFunc(dec):
+				if dec.Name.Name == name {
+					return dec
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (p *provParser) schemaFunc(name string) *ast.FuncDecl {
+	f := p.findFunc(name)
+	if p.isResourceFunc(f) {
+		return f
+	}
+	return nil
+}
+
+func (p *provParser) resourceFunc(name string) *ast.FuncDecl {
+	f := p.findFunc(name)
+	if p.isResourceFunc(f) {
+		return f
+	}
+	return nil
+}
+
+func (p *provParser) parse() (*Provider, error) {
+	var provFunc *ast.FuncDecl
+
+	// find the provider func, this could probably be simplified
+	// as just the exported `Provider` func
+	for _, file := range p.pkg.Files {
+		for _, dec := range file.Decls {
+			switch dec := dec.(type) {
+			case *ast.FuncDecl:
+				if p.isProviderFunc(dec) {
 					provFunc = dec
+					break
 				}
 			}
 		}
@@ -107,7 +121,7 @@ func (p *provParser) parse() (*Provider, error) {
 	dataSources := make([]Resource, 0, len(dataSourceFuncs))
 
 	for name, fName := range dataSourceFuncs {
-		r, err := p.buildResource(name, resFuncs[fName], schemaFuncs)
+		r, err := p.buildResource(name, p.resourceFunc(fName))
 		if err != nil {
 			return nil, err
 		}
@@ -118,7 +132,7 @@ func (p *provParser) parse() (*Provider, error) {
 	resources := make([]Resource, 0, len(resourceFuncs))
 
 	for name, fName := range resourceFuncs {
-		r, err := p.buildResource(name, resFuncs[fName], schemaFuncs)
+		r, err := p.buildResource(name, p.resourceFunc(fName))
 		if err != nil {
 			return nil, err
 		}
@@ -238,33 +252,86 @@ func (p *provParser) isSchemaFunc(f *ast.FuncDecl) bool {
 	return p.hasResultSelectorName(f, 0, "github.com/hashicorp/terraform/helper/schema", "Schema")
 }
 
-func walkToSchema(n ast.Node) *ast.CompositeLit {
-	var schemaAst *ast.CompositeLit
+func walkToKey(n ast.Node, key string) ast.Expr {
+	var r ast.Expr
 	ast.Inspect(n, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.KeyValueExpr:
-			if k, ok := n.Key.(*ast.Ident); ok && k.Name == "Schema" {
-				schemaAst = n.Value.(*ast.CompositeLit)
+			if k, ok := n.Key.(*ast.Ident); ok && k.Name == key {
+				r = n.Value
 			}
 		}
 
-		return schemaAst == nil
+		return r == nil
 	})
-	return schemaAst
+	return r
 }
 
-func (p *provParser) buildResource(name string, rf schemaFunc, schemaFuncs map[string]schemaFunc) (*Resource, error) {
-	r := &Resource{
-		Name:             name,
-		Provider:         "azurerm",
-		NameSuffix:       name[8:len(name)],
-		ShortDescription: "",
-		Description:      strings.TrimSpace(skipFirstLine(rf.Func.Doc.Text())),
+func walkToSchema(n ast.Node) *ast.CompositeLit {
+	schemaAst := walkToKey(n, "Schema")
+	if schemaAst == nil {
+		return nil
+	}
+	return schemaAst.(*ast.CompositeLit)
+}
+
+func (p *provParser) lookupResourceFunc(n ast.Node, key string) (*ast.FuncDecl, error) {
+	v := walkToKey(n, key)
+	if v == nil {
+		return nil, nil
 	}
 
-	schemaAst := walkToSchema(rf.Func.Body)
+	switch v := v.(type) {
+	case *ast.Ident:
+		return p.findFunc(v.Name), nil
+	default:
+		return nil, fmt.Errorf("%s func value of type %T is not supported", key, v)
+	}
+	return nil, nil
+}
+
+func (p *provParser) buildResource(name string, rf *ast.FuncDecl) (*Resource, error) {
+	create, err := p.lookupResourceFunc(rf.Body, "Create")
+	if err != nil {
+		return nil, err
+	}
+
+	read, err := p.lookupResourceFunc(rf.Body, "Read")
+	if err != nil {
+		return nil, err
+	}
+
+	update, err := p.lookupResourceFunc(rf.Body, "Update")
+	if err != nil {
+		return nil, err
+	}
+
+	delete, err := p.lookupResourceFunc(rf.Body, "Delete")
+	if err != nil {
+		return nil, err
+	}
+
+	exists, err := p.lookupResourceFunc(rf.Body, "Exists")
+	if err != nil {
+		return nil, err
+	}
+
+	r := &Resource{
+		Name:        name,
+		NameSuffix:  name[8:len(name)],
+		FuncComment: strings.TrimSpace(skipFirstLine(rf.Doc.Text())),
+		Func:        rf,
+
+		CreateFunc: create,
+		ReadFunc:   read,
+		UpdateFunc: update,
+		DeleteFunc: delete,
+		ExistsFunc: exists,
+	}
+
+	schemaAst := walkToSchema(rf.Body)
 	attrs := []Attribute{}
-	err := p.appendAttributes(&attrs, rf, schemaAst, schemaFuncs)
+	err = p.appendAttributes(&attrs, rf, schemaAst)
 	if err != nil {
 		return nil, fmt.Errorf("error with attributes for %s: %s", name, err)
 	}
@@ -277,7 +344,7 @@ func (p *provParser) buildResource(name string, rf schemaFunc, schemaFuncs map[s
 	return r, nil
 }
 
-func (p *provParser) appendAttributes(attrs *[]Attribute, rf schemaFunc, schemaAst *ast.CompositeLit, schemaFuncs map[string]schemaFunc) error {
+func (p *provParser) appendAttributes(attrs *[]Attribute, rf *ast.FuncDecl, schemaAst *ast.CompositeLit) error {
 	for _, e := range schemaAst.Elts {
 		kv := e.(*ast.KeyValueExpr)
 
@@ -292,14 +359,14 @@ func (p *provParser) appendAttributes(attrs *[]Attribute, rf schemaFunc, schemaA
 				return fmt.Errorf("unexpected unary operator %v", v.Op)
 			}
 			vlit := v.X.(*ast.CompositeLit)
-			att, err := p.buildAttribute(rf, k, vlit, schemaFuncs)
+			att, err := p.buildAttribute(rf, k, vlit)
 			if err != nil {
 				return err
 			}
 
 			*attrs = append(*attrs, att)
 		case *ast.CompositeLit:
-			att, err := p.buildAttribute(rf, k, v, schemaFuncs)
+			att, err := p.buildAttribute(rf, k, v)
 			if err != nil {
 				return err
 			}
@@ -307,13 +374,13 @@ func (p *provParser) appendAttributes(attrs *[]Attribute, rf schemaFunc, schemaA
 			*attrs = append(*attrs, att)
 		case *ast.CallExpr:
 			callName := v.Fun.(*ast.Ident).Name
-			sf, ok := schemaFuncs[callName]
-			if !ok {
+			sf := p.schemaFunc(callName)
+			if sf == nil {
 				return fmt.Errorf("unable to find schema func for %s", callName)
 			}
 
 			var childAst *ast.CompositeLit
-			ast.Inspect(sf.Func, func(n ast.Node) bool {
+			ast.Inspect(sf, func(n ast.Node) bool {
 				switch n := n.(type) {
 				case *ast.CompositeLit:
 					if sel, ok := n.Type.(*ast.SelectorExpr); ok {
@@ -332,7 +399,7 @@ func (p *provParser) appendAttributes(attrs *[]Attribute, rf schemaFunc, schemaA
 				return childAst == nil
 			})
 
-			att, err := p.buildAttribute(sf, k, childAst, schemaFuncs)
+			att, err := p.buildAttribute(sf, k, childAst)
 			if err != nil {
 				return err
 			}
@@ -346,7 +413,7 @@ func (p *provParser) appendAttributes(attrs *[]Attribute, rf schemaFunc, schemaA
 	return nil
 }
 
-func (p *provParser) buildAttribute(sf schemaFunc, name string, schema *ast.CompositeLit, schemaFuncs map[string]schemaFunc) (Attribute, error) {
+func (p *provParser) buildAttribute(sf *ast.FuncDecl, name string, schema *ast.CompositeLit) (Attribute, error) {
 	att := Attribute{
 		Name:        name,
 		Description: strings.TrimSpace(stringKeyValue(schema, "Description")),
@@ -365,7 +432,7 @@ func (p *provParser) buildAttribute(sf schemaFunc, name string, schema *ast.Comp
 	childSchema := walkToSchema(schema)
 	if childSchema != nil {
 		atts := []Attribute{}
-		err := p.appendAttributes(&atts, sf, childSchema, schemaFuncs)
+		err := p.appendAttributes(&atts, sf, childSchema)
 		if err != nil {
 			return Attribute{}, err
 		}

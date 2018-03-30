@@ -9,8 +9,52 @@ import (
 	"github.com/paultyng/tfprovlint/provparse"
 )
 
-func TestPackage(t *testing.T) {
+func TestPackage_Template(t *testing.T) {
 	path := "../vendor/github.com/terraform-providers/terraform-provider-template/template"
+	prov := parsePackage(t, path)
+
+	dsTemplateFile := prov.DataSource("template_file")
+	if dsTemplateFile == nil {
+		t.Fatal("expected data source template_file")
+	}
+	if dsTemplateFile.ReadFunc == nil {
+		t.Fatal("read func is required for template_file")
+	}
+	if dsTemplateFile.CreateFunc != nil ||
+		dsTemplateFile.UpdateFunc != nil ||
+		dsTemplateFile.DeleteFunc != nil {
+		t.Fatal("create, update, and delete funcs must be nil for template_file")
+	}
+
+	dsTemplateCloudinitConfig := prov.DataSource("template_cloudinit_config")
+	if dsTemplateCloudinitConfig == nil {
+		t.Fatal("expected data source template_cloudinit_config")
+	}
+
+	if dsTemplateCloudinitConfig.ReadFunc == nil {
+		t.Fatal("read func is required for template_cloudinit_config")
+	}
+
+	if dsTemplateCloudinitConfig.CreateFunc != nil ||
+		dsTemplateCloudinitConfig.UpdateFunc != nil ||
+		dsTemplateCloudinitConfig.DeleteFunc != nil {
+		t.Fatal("create, update, and delete funcs must be nil for template_cloudinit_config")
+	}
+
+	rTemplateDir := prov.Resource("template_dir")
+	if rTemplateDir == nil {
+		t.Fatal("expected resource template_dir")
+	}
+
+	if rTemplateDir.CreateFunc == nil ||
+		rTemplateDir.ReadFunc == nil ||
+		rTemplateDir.DeleteFunc == nil {
+		t.Fatal("expect create, read, and delete funcs for template_dir")
+	}
+}
+
+func parsePackage(t *testing.T, path string) *provparse.Provider {
+	t.Helper()
 
 	prov, err := provparse.Package(path)
 	if err != nil {
@@ -20,18 +64,5 @@ func TestPackage(t *testing.T) {
 		t.Fatal("no provider returned")
 	}
 
-	dsTemplateFile := prov.DataSource("template_file")
-	if dsTemplateFile == nil {
-		t.Fatal("expected data source template_file")
-	}
-
-	dsTemplateCloudinitConfig := prov.DataSource("template_cloudinit_config")
-	if dsTemplateCloudinitConfig == nil {
-		t.Fatal("expected data source template_cloudinit_config")
-	}
-
-	rTemplateDir := prov.Resource("template_dir")
-	if rTemplateDir == nil {
-		t.Fatal("expected resource template_dir")
-	}
+	return prov
 }

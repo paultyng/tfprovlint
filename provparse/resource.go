@@ -1,5 +1,7 @@
 package provparse
 
+import "go/ast"
+
 // Provider represents the data for the provider.
 type Provider struct {
 	Name        string
@@ -29,14 +31,17 @@ func (p *Provider) DataSource(name string) *Resource {
 
 // Resource represents the data for a resource or data source of the provider.
 type Resource struct {
-	Provider         string // azurerm
-	Name             string // azurerm_image
-	NameSuffix       string // image
-	Type             string // data vs resource?
-	ShortDescription string // Get information about an Image
-	Description      string // Use this data source to access information about an Image.
-	// TODO: +Example usage, etc?
-	// TODO: resource category
+	Name        string // azurerm_image
+	NameSuffix  string // image
+	FuncComment string // Use this data source to access information about an Image.
+
+	Func       *ast.FuncDecl
+	CreateFunc *ast.FuncDecl
+	ReadFunc   *ast.FuncDecl
+	UpdateFunc *ast.FuncDecl
+	DeleteFunc *ast.FuncDecl
+	ExistsFunc *ast.FuncDecl
+
 	Attributes []Attribute
 }
 
