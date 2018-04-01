@@ -1,6 +1,8 @@
 package provparse
 
-import "go/ast"
+import (
+	"go/ast"
+)
 
 // Provider represents the data for the provider.
 type Provider struct {
@@ -69,11 +71,30 @@ func (a *Attribute) Attribute(name string) *Attribute {
 type Attribute struct {
 	Name        string
 	Description string
-	Optional    bool
-	Required    bool
-	Computed    bool
+
+	Optional bool
+	Required bool
+	Computed bool
+
+	Type AttributeType
 
 	Attributes []Attribute
-	Min        int
-	Max        int
+
+	Min int
+	Max int
 }
+
+// AttributeType maps roughly to helper/schema.ValueType
+type AttributeType int
+
+// These constants map roughly to the values for helper/schema.ValueType
+const (
+	TypeInvalid AttributeType = iota
+	TypeBool
+	TypeInt
+	TypeFloat
+	TypeString
+	TypeList
+	TypeMap
+	TypeSet
+)

@@ -4,10 +4,15 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"log"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+)
+
+const (
+	pkgTFHelperSchema = "github.com/hashicorp/terraform/helper/schema"
 )
 
 type provParser struct {
@@ -78,7 +83,7 @@ func (p *provParser) findFunc(name string) *ast.FuncDecl {
 
 func (p *provParser) schemaFunc(name string) *ast.FuncDecl {
 	f := p.findFunc(name)
-	if p.isResourceFunc(f) {
+	if p.isSchemaFunc(f) {
 		return f
 	}
 	return nil
@@ -202,7 +207,7 @@ func (p *provParser) extractResourceFuncNames(cl *ast.CompositeLit) (map[string]
 				res[k] = f.Name
 				continue
 			case *ast.SelectorExpr:
-				if ok, _ := p.selectorImports(f, "github.com/hashicorp/terraform/helper/schema"); ok && f.Sel.Name == "DataSourceResourceShim" {
+				if ok, _ := p.selectorImports(f, pkgTFHelperSchema); ok && f.Sel.Name == "DataSourceResourceShim" {
 					if shimCall, ok := v.Args[1].(*ast.CallExpr); ok {
 						if shimFunc, ok := shimCall.Fun.(*ast.Ident); ok {
 							res[k] = shimFunc.Name
@@ -241,7 +246,7 @@ func (p *provParser) hasResultSelectorName(f *ast.FuncDecl, i int, pack, selecto
 }
 
 func (p *provParser) isResourceFunc(f *ast.FuncDecl) bool {
-	return p.hasResultSelectorName(f, 0, "github.com/hashicorp/terraform/helper/schema", "Resource")
+	return p.hasResultSelectorName(f, 0, pkgTFHelperSchema, "Resource")
 }
 
 func (p *provParser) isProviderFunc(f *ast.FuncDecl) bool {
@@ -249,7 +254,7 @@ func (p *provParser) isProviderFunc(f *ast.FuncDecl) bool {
 }
 
 func (p *provParser) isSchemaFunc(f *ast.FuncDecl) bool {
-	return p.hasResultSelectorName(f, 0, "github.com/hashicorp/terraform/helper/schema", "Schema")
+	return p.hasResultSelectorName(f, 0, pkgTFHelperSchema, "Schema")
 }
 
 func walkToKey(n ast.Node, key string) ast.Expr {
@@ -267,12 +272,26 @@ func walkToKey(n ast.Node, key string) ast.Expr {
 	return r
 }
 
-func walkToSchema(n ast.Node) *ast.CompositeLit {
+func walkToSchema(n ast.Node) (*ast.CompositeLit, error) {
 	schemaAst := walkToKey(n, "Schema")
 	if schemaAst == nil {
-		return nil
+		return nil, nil
 	}
-	return schemaAst.(*ast.CompositeLit)
+	switch schemaAst := schemaAst.(type) {
+	case *ast.CompositeLit:
+		return schemaAst, nil
+	case *ast.CallExpr:
+		switch fAst := schemaAst.Fun.(type) {
+		case *ast.SelectorExpr:
+			log.Printf("[WARN] loading schema funcs from external packages is not supported yet %v.%s", fAst.X, fAst.Sel.Name)
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%T", schemaAst.Fun)
+	}
+	if cl, ok := schemaAst.(*ast.CompositeLit); ok {
+		return cl, nil
+	}
+	return nil, fmt.Errorf("expected Schema to be *ast.CompositeLit but got %T", schemaAst)
 }
 
 func (p *provParser) lookupResourceFunc(n ast.Node, key string) (*ast.FuncDecl, error) {
@@ -328,16 +347,21 @@ func (p *provParser) buildResource(name string, rf *ast.FuncDecl) (*Resource, er
 		ExistsFunc: exists,
 	}
 
-	schemaAst := walkToSchema(rf.Body)
-	attrs := []Attribute{}
-	err = p.appendAttributes(&attrs, rf, schemaAst)
+	schemaAst, err := walkToSchema(rf.Body)
 	if err != nil {
-		return nil, fmt.Errorf("error with attributes for %s: %s", name, err)
+		return nil, fmt.Errorf("error loading schema for %q: %s", name, err)
 	}
+	attrs := []Attribute{}
+	if schemaAst != nil {
+		err = p.appendAttributes(&attrs, rf, schemaAst)
+		if err != nil {
+			return nil, fmt.Errorf("error with attributes for %q: %s", name, err)
+		}
 
-	sort.Slice(attrs, func(i, j int) bool {
-		return attrs[i].Name < attrs[j].Name
-	})
+		sort.Slice(attrs, func(i, j int) bool {
+			return attrs[i].Name < attrs[j].Name
+		})
+	}
 	r.Attributes = attrs
 
 	return r, nil
@@ -383,7 +407,7 @@ func (p *provParser) appendAttributes(attrs *[]Attribute, rf *ast.FuncDecl, sche
 				switch n := n.(type) {
 				case *ast.CompositeLit:
 					if sel, ok := n.Type.(*ast.SelectorExpr); ok {
-						if ok, _ := p.selectorImports(sel, "github.com/hashicorp/terraform/helper/schema"); !ok {
+						if ok, _ := p.selectorImports(sel, pkgTFHelperSchema); !ok {
 							return true
 						}
 
@@ -419,6 +443,41 @@ func (p *provParser) buildAttribute(sf *ast.FuncDecl, name string, schema *ast.C
 		Required:    boolKeyValue(schema, "Required"),
 		Optional:    boolKeyValue(schema, "Optional"),
 		Computed:    boolKeyValue(schema, "Computed"),
+		Type:        TypeInvalid,
+	}
+
+	if st, err := keyValue(schema, "Type"); err != nil {
+		return Attribute{}, err
+	} else {
+		switch st := st.(type) {
+		case *ast.SelectorExpr:
+			if ok, err := p.selectorImports(st, pkgTFHelperSchema); err != nil {
+				return Attribute{}, err
+			} else if !ok {
+				return Attribute{}, fmt.Errorf("selector imports unexpected package %v", st)
+			}
+
+			switch st.Sel.Name {
+			case "TypeBool":
+				att.Type = TypeBool
+			case "TypeInt":
+				att.Type = TypeInt
+			case "TypeFloat":
+				att.Type = TypeFloat
+			case "TypeString":
+				att.Type = TypeString
+			case "TypeList":
+				att.Type = TypeList
+			case "TypeMap":
+				att.Type = TypeMap
+			case "TypeSet":
+				att.Type = TypeSet
+			default:
+				return Attribute{}, fmt.Errorf("unexpected type %q", st.Sel.Name)
+			}
+		default:
+			return Attribute{}, fmt.Errorf("schema type ast of %T is unexpected", st)
+		}
 	}
 
 	// t, err := keyValue(schema, "Type")
@@ -428,8 +487,12 @@ func (p *provParser) buildAttribute(sf *ast.FuncDecl, name string, schema *ast.C
 
 	// TODO: min/max handling
 
-	childSchema := walkToSchema(schema)
+	childSchema, err := walkToSchema(schema)
+	if err != nil {
+		return Attribute{}, fmt.Errorf("unable to find schema for %q: %s", name, err)
+	}
 	if childSchema != nil {
+
 		atts := []Attribute{}
 		err := p.appendAttributes(&atts, sf, childSchema)
 		if err != nil {

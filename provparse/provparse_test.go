@@ -25,6 +25,13 @@ func TestPackage_Template(t *testing.T) {
 		dsTemplateFile.DeleteFunc != nil {
 		t.Fatal("create, update, and delete funcs must be nil for template_file")
 	}
+	if att := dsTemplateFile.Attribute("filename"); att != nil {
+		if att.Type != provparse.TypeString {
+			t.Fatal("template_file.filename is not a TypeString")
+		}
+	} else {
+		t.Fatal("filename attribute was not found on template_file")
+	}
 
 	dsTemplateCloudinitConfig := prov.DataSource("template_cloudinit_config")
 	if dsTemplateCloudinitConfig == nil {
