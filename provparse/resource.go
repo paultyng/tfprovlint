@@ -1,7 +1,9 @@
 package provparse
 
 import (
-	"go/ast"
+	"go/token"
+
+	"golang.org/x/tools/go/ssa"
 )
 
 // Provider represents the data for the provider.
@@ -9,6 +11,7 @@ type Provider struct {
 	Name        string
 	Resources   []Resource
 	DataSources []Resource
+	Fset        *token.FileSet
 }
 
 func findResource(resources []Resource, name string) *Resource {
@@ -34,15 +37,14 @@ func (p *Provider) DataSource(name string) *Resource {
 // Resource represents the data for a resource or data source of the provider.
 type Resource struct {
 	Name        string // azurerm_image
-	NameSuffix  string // image
 	FuncComment string // Use this data source to access information about an Image.
 
-	Func       *ast.FuncDecl
-	CreateFunc *ast.FuncDecl
-	ReadFunc   *ast.FuncDecl
-	UpdateFunc *ast.FuncDecl
-	DeleteFunc *ast.FuncDecl
-	ExistsFunc *ast.FuncDecl
+	Func       *ssa.Function
+	CreateFunc *ssa.Function
+	ReadFunc   *ssa.Function
+	UpdateFunc *ssa.Function
+	DeleteFunc *ssa.Function
+	ExistsFunc *ssa.Function
 
 	Attributes []Attribute
 }
@@ -79,9 +81,6 @@ type Attribute struct {
 	Type AttributeType
 
 	Attributes []Attribute
-
-	Min int
-	Max int
 }
 
 // AttributeType maps roughly to helper/schema.ValueType

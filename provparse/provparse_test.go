@@ -3,14 +3,13 @@ package provparse_test
 import (
 	"testing"
 
-	// importing this here just to ensure its present in vendor
-	_ "github.com/terraform-providers/terraform-provider-template/template"
-
 	"github.com/paultyng/tfprovlint/provparse"
 )
 
 func TestPackage_Template(t *testing.T) {
-	path := "../vendor/github.com/terraform-providers/terraform-provider-template/template"
+	// This assumes you have cloned the template provider to your $GOPATH
+	path := "github.com/terraform-providers/terraform-provider-template/template"
+
 	prov := parsePackage(t, path)
 
 	dsTemplateFile := prov.DataSource("template_file")
@@ -65,7 +64,7 @@ func parsePackage(t *testing.T, path string) *provparse.Provider {
 
 	prov, err := provparse.Package(path)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("unable to parse package: %s", err)
 	}
 	if prov == nil {
 		t.Fatal("no provider returned")
