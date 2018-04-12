@@ -7,19 +7,13 @@ import (
 	"log"
 	"strconv"
 
+	"golang.org/x/tools/go/ssa"
+
 	"github.com/paultyng/tfprovlint/lint"
 	"github.com/paultyng/tfprovlint/provparse"
-	"golang.org/x/tools/go/ssa"
 )
 
 const (
-	ruleIDSetNameMustExist    = "tfprovlint002"
-	ruleIDUseProperTypesInSet = "tfprovlint003"
-	// When using `d.Set` there is no need to check the error when scalar types are expected.
-	ruleIDErrCheckComplexSets = "tfprovlint004"
-	// When using `d.Set` should not dereference pointer types
-	ruleIDDoNotDereferencePointers = "tfprovlint005"
-
 	setCallee = "(*github.com/hashicorp/terraform/helper/schema.ResourceData).Set"
 )
 
@@ -92,7 +86,7 @@ func doNotDereferencePointersInSet(r *provparse.Resource, att *provparse.Attribu
 
 				if stars := numStars(v.X.Type()); stars%2 != expectedMod {
 					issues = []lint.Issue{
-						lint.NewIssuef(ruleIDDoNotDereferencePointers, ssacall.Pos(), "do not dereference value for attribute %q when calling d.Set", attName),
+						lint.NewIssuef(ssacall.Pos(), "do not dereference value for attribute %q when calling d.Set", attName),
 					}
 
 					return false
@@ -112,7 +106,7 @@ func doNotDereferencePointersInSet(r *provparse.Resource, att *provparse.Attribu
 func setAttributeNameExists(r *provparse.Resource, att *provparse.Attribute, attName string, ssacall ssa.CallInstruction) ([]lint.Issue, error) {
 	if att == nil {
 		return []lint.Issue{
-			lint.NewIssuef(ruleIDSetNameMustExist, ssacall.Pos(), "attribute %q was not read from the schema", attName),
+			lint.NewIssuef(ssacall.Pos(), "attribute %q was not read from the schema", attName),
 		}, nil
 	}
 	return nil, nil

@@ -8,14 +8,12 @@ import (
 )
 
 type Issue struct {
-	RuleID  string
 	Message string
 	Pos     token.Pos
 }
 
-func NewIssuef(id string, pos token.Pos, format string, args ...interface{}) Issue {
+func NewIssuef(pos token.Pos, format string, args ...interface{}) Issue {
 	iss := Issue{
-		RuleID:  id,
 		Pos:     pos,
 		Message: fmt.Sprintf(format, args...),
 	}

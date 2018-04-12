@@ -10,11 +10,28 @@ import (
 	"github.com/paultyng/tfprovlint/rules"
 )
 
+type ruleFactoryFunc func() lint.ResourceRule
+
+var resourceRules = map[string]ruleFactoryFunc{
+	"tfprovlint001": rules.NewNoSetIdInDeleteFuncRule,
+	"tfprovlint002": rules.NewSetAttributeNameExistsRule,
+	// "tfprovlint003": use proper types in set
+	// "tfprovlint004": err check sets on complex types
+	"tfprovlint005": rules.NewDoNotDereferencePointersInSet,
+}
+
+type issueResult struct {
+	ResourceType string // "resource" or "data source"
+	Resource     provparse.Resource
+	RuleID       string
+	Issue        lint.Issue
+}
+
 func main() {
 	// TODO: get this from flag or args?
 	//path := "github.com/terraform-providers/terraform-provider-azurerm/azurerm"
-	path := "github.com/terraform-providers/terraform-provider-aws/aws"
-	//path := "github.com/terraform-providers/terraform-provider-template/template"
+	//path := "github.com/terraform-providers/terraform-provider-aws/aws"
+	path := "github.com/terraform-providers/terraform-provider-template/template"
 
 	paths := gotool.ImportPaths([]string{path})
 
@@ -27,29 +44,49 @@ func main() {
 		log.Fatal(err)
 	}
 
-	resourceRules := []lint.ResourceRule{
-		//rules.NewNoSetIdInDeleteFuncRule(),
-		//rules.NewSetAttributeNameExistsRule(),
-		rules.NewDoNotDereferencePointersInSet(),
+	results := []issueResult{}
+	newResults, err := evaluateRules("data", resourceRules, prov.DataSources)
+	if err != nil {
+		log.Fatal(err)
 	}
+	results = append(results, newResults...)
 
-	issues := []lint.Issue{}
-	for _, r := range prov.Resources {
+	newResults, err = evaluateRules("resource", resourceRules, prov.Resources)
+	if err != nil {
+		log.Fatal(err)
+	}
+	results = append(results, newResults...)
+
+	fmt.Println()
+	for _, res := range results {
+		fmt.Printf("%s: [%s] [%s.%s] %s\n", prov.Fset.Position(res.Issue.Pos), res.RuleID, res.ResourceType, res.Resource.Name, res.Issue.Message)
+	}
+}
+
+func evaluateRules(resourceType string, rules map[string]ruleFactoryFunc, resources []provparse.Resource) ([]issueResult, error) {
+	results := []issueResult{}
+	for _, r := range resources {
 		// if r.Name == "aws_ssm_maintenance_window_task" {
 		// 	r.ReadFunc.WriteTo(os.Stdout)
 		// }
 
-		for _, rule := range resourceRules {
+		for id, factory := range resourceRules {
+			rule := factory()
 			newIssues, err := rule.CheckResource(&r)
 			if err != nil {
-				log.Fatal(err)
+				return nil, err
 			}
-			issues = append(issues, newIssues...)
+			for _, iss := range newIssues {
+				results = append(results, issueResult{
+					ResourceType: resourceType,
+					Issue:        iss,
+					Resource:     r,
+					RuleID:       id,
+				})
+			}
+
 		}
 	}
 
-	fmt.Println()
-	for _, iss := range issues {
-		fmt.Printf("%s: %s [%s]\n", prov.Fset.Position(iss.Pos), iss.Message, iss.RuleID)
-	}
+	return results, nil
 }

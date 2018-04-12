@@ -3,13 +3,10 @@ package rules
 import (
 	"go/token"
 
+	"golang.org/x/tools/go/ssa"
+
 	"github.com/paultyng/tfprovlint/lint"
 	"github.com/paultyng/tfprovlint/provparse"
-	"golang.org/x/tools/go/ssa"
-)
-
-const (
-	ruleIDDeleteShouldNotCallSetId = "tfprovlint001"
 )
 
 const (
@@ -29,7 +26,6 @@ func NewNoSetIdInDeleteFuncRule() lint.ResourceRule {
 	deleteBlacklist[calleeResourceDataSetId] = true
 
 	return &callBlacklist{
-		RuleID:             ruleIDDeleteShouldNotCallSetId,
 		IssueMessageFormat: "DeleteFunc should not call %s",
 		Delete:             deleteBlacklist,
 	}
@@ -42,7 +38,7 @@ func (rule *callBlacklist) CheckResource(r *provparse.Resource) ([]lint.Issue, e
 		if calls := functionCalls(r.DeleteFunc, rule.Delete); len(calls) > 0 {
 			// it makes some of the calls, need to append issues
 			for call, pos := range calls {
-				issues = append(issues, lint.NewIssuef(rule.RuleID, pos, rule.IssueMessageFormat, call))
+				issues = append(issues, lint.NewIssuef(pos, rule.IssueMessageFormat, call))
 			}
 		}
 	}
