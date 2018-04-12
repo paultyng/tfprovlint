@@ -34,3 +34,11 @@
 [[constraint]]
   name = "github.com/kisielk/gotool"
   version = "1.0.0"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/mitchellh/cli"
+
+[[constraint]]
+  name = "github.com/fatih/color"
+  version = "1.6.0"
