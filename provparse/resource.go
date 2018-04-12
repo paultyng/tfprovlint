@@ -89,6 +89,7 @@ type Attribute struct {
 }
 
 // AttributeType maps roughly to helper/schema.ValueType
+//go:generate stringer -type=AttributeType
 type AttributeType int
 
 // These constants map roughly to the values for helper/schema.ValueType

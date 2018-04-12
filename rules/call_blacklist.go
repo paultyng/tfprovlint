@@ -21,16 +21,6 @@ type callBlacklist struct {
 
 var _ lint.ResourceRule = &callBlacklist{}
 
-func NewNoSetIdInDeleteFuncRule() lint.ResourceRule {
-	deleteBlacklist := map[string]bool{}
-	deleteBlacklist[calleeResourceDataSetId] = true
-
-	return &callBlacklist{
-		IssueMessageFormat: "DeleteFunc should not call %s",
-		Delete:             deleteBlacklist,
-	}
-}
-
 func (rule *callBlacklist) CheckResource(r *provparse.Resource) ([]lint.Issue, error) {
 	var issues []lint.Issue
 

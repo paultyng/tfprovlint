@@ -2,7 +2,6 @@ package rules
 
 import (
 	"fmt"
-	"go/token"
 	"log"
 	"strconv"
 
@@ -21,63 +20,6 @@ type resourceDataSet struct {
 }
 
 var _ lint.ResourceRule = &resourceDataSet{}
-
-func NewSetAttributeNameExistsRule() lint.ResourceRule {
-	return &resourceDataSet{
-		CheckAttribute: setAttributeNameExists,
-	}
-}
-
-func NewDoNotDereferencePointersInSet() lint.ResourceRule {
-	return &resourceDataSet{
-		CheckAttribute: doNotDereferencePointersInSet,
-	}
-}
-
-func doNotDereferencePointersInSet(r *provparse.Resource, att *provparse.Attribute, attName string, ssacall ssa.CallInstruction) ([]lint.Issue, error) {
-	argValue := ssacall.Common().Args[2]
-	var issues []lint.Issue
-
-	var inspectErr error
-	inspectValue(argValue, func(v ssa.Value) bool {
-		switch v := v.(type) {
-		case *ssa.UnOp:
-			if v.Op == token.MUL {
-				// skip field and index addr derefs as they are pointer lookups (I think?)
-				switch v.X.(type) {
-				case *ssa.FieldAddr:
-					return true
-				case *ssa.IndexAddr:
-					return true
-				}
-
-				if stars := numStars(v.X.Type()); stars > 0 {
-					issues = []lint.Issue{
-						lint.NewIssuef(ssacall.Pos(), "do not dereference value for attribute %q when calling d.Set", attName),
-					}
-
-					return false
-				}
-			}
-		}
-
-		return true
-	})
-	if inspectErr != nil {
-		return nil, inspectErr
-	}
-
-	return issues, nil
-}
-
-func setAttributeNameExists(r *provparse.Resource, att *provparse.Attribute, attName string, ssacall ssa.CallInstruction) ([]lint.Issue, error) {
-	if att == nil {
-		return []lint.Issue{
-			lint.NewIssuef(ssacall.Pos(), "attribute %q was not read from the schema", attName),
-		}, nil
-	}
-	return nil, nil
-}
 
 func (rule *resourceDataSet) CheckResource(r *provparse.Resource) ([]lint.Issue, error) {
 	var issues []lint.Issue
@@ -102,21 +44,16 @@ func (rule *resourceDataSet) CheckResource(r *provparse.Resource) ([]lint.Issue,
 					}
 
 					nameArg := ssacall.Common().Args[1]
+					nameArg = valueBeforeInterface(nameArg)
 					var attName string
-					inspectValue(nameArg, func(v ssa.Value) bool {
-						switch nameArg := nameArg.(type) {
-						case *ssa.Const:
-							var err error
-							attName, err = strconv.Unquote(nameArg.Value.ExactString())
-							if err != nil {
-								inspectErr = err
-								return false
-							}
+					switch nameArg := nameArg.(type) {
+					case *ssa.Const:
+						var err error
+						attName, err = strconv.Unquote(nameArg.Value.ExactString())
+						if err != nil {
+							inspectErr = err
+							return false
 						}
-						return true
-					})
-					if inspectErr != nil {
-						return false
 					}
 					if attName == "" {
 						log.Printf("[WARN] unable to determine what attribute is being set in %s", r.ReadFunc.Name())

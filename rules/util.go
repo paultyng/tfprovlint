@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"go/types"
-	"log"
 	"strings"
 
 	"golang.org/x/tools/go/ssa"
@@ -36,38 +35,12 @@ func normalizeSSAFunctionString(f *ssa.Function) string {
 	return fmt.Sprintf("%s.%s", pkgPath, funcName)
 }
 
-func inspectValue(root ssa.Value, cb func(v ssa.Value) bool) {
-	visited := map[ssa.Value]bool{}
-
-	var walk func(v ssa.Value) bool
-	walk = func(v ssa.Value) bool {
-		if visited[v] {
-			return true
-		}
-		visited[v] = true
-
-		if !cb(v) {
-			return false
-		}
-
-		switch v := v.(type) {
-		case *ssa.MakeInterface:
-			if !walk(v.X) {
-				return false
-			}
-		//TODO: need to simulate this case and make sure I want it
-		case *ssa.Phi:
-			log.Printf("[WARN] um, I don't really understand Phi... here be dragons...")
-			for _, edge := range v.Edges {
-				if !walk(edge) {
-					return false
-				}
-			}
-		}
-
-		return true
+func valueBeforeInterface(v ssa.Value) ssa.Value {
+	if v, ok := v.(*ssa.MakeInterface); ok {
+		return v.X
 	}
-	walk(root)
+
+	return v
 }
 
 func inspectInstructions(root *ssa.Function, cb func(ins ssa.Instruction) bool) {
