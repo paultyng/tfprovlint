@@ -3,46 +3,11 @@ package rules
 import (
 	"bytes"
 	"fmt"
-	"go/ast"
-	"go/importer"
-	"go/parser"
-	"go/token"
-	"go/types"
 	"reflect"
 	"testing"
-
-	"golang.org/x/tools/go/ssa"
-	"golang.org/x/tools/go/ssa/ssautil"
 )
 
 func TestFunctionCalls(t *testing.T) {
-	pkg, err := makeSamplePkg(`
-package test
-
-import (
-	"bytes"
-	"fmt"
-)
-
-func foo() {
-	bar()
-	fmt.Println("")
-}
-
-func bar() {
-	baz()
-	bar()
-}
-
-func baz() {
-	b := bytes.NewBuffer(([]byte)(""))
-	b.Len()
-}		
-`)
-	if err != nil {
-		t.Fatalf("unable to build test package: %s", err)
-	}
-
 	b := bytes.NewBuffer(([]byte)(""))
 	b.Len()
 
@@ -80,7 +45,7 @@ func baz() {
 		{[]string{"(*bytes.Buffer).Len"}, "foo", []string{"(*bytes.Buffer).Len"}},
 	} {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			actualPos := functionCalls(pkg.Func(c.funcName), stringSliceToSet(c.methods))
+			actualPos := functionCalls(functionCallsPkg.Func(c.funcName), stringSliceToSet(c.methods))
 
 			actual := make([]string, 0, len(actualPos))
 			for k := range actualPos {
@@ -95,23 +60,26 @@ func baz() {
 
 }
 
-func makeSamplePkg(src string) (*ssa.Package, error) {
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", src, parser.ParseComments)
-	if err != nil {
-		return nil, err
-	}
-	files := []*ast.File{f}
+var functionCallsPkg = mustMakeSamplePkg(`
+package test
 
-	tpkg := types.NewPackage("test", "")
+import (
+	"bytes"
+	"fmt"
+)
 
-	pkg, _, err := ssautil.BuildPackage(
-		&types.Config{Importer: importer.Default()},
-		fset, tpkg, files, ssa.SanityCheckFunctions,
-	)
-	pkg.Build()
-	if err != nil {
-		return nil, err
-	}
-	return pkg, nil
+func foo() {
+	bar()
+	fmt.Println("")
 }
+
+func bar() {
+	baz()
+	bar()
+}
+
+func baz() {
+	b := bytes.NewBuffer(([]byte)(""))
+	b.Len()
+}		
+`)

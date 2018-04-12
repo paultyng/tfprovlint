@@ -28,14 +28,19 @@ func main() {
 	}
 
 	resourceRules := []lint.ResourceRule{
-		//rules.NewMustSetProperTypes(),
-		rules.NewCallBlacklist(),
+		//rules.NewNoSetIdInDeleteFuncRule(),
+		//rules.NewSetAttributeNameExistsRule(),
+		rules.NewDoNotDereferencePointersInSet(),
 	}
 
 	issues := []lint.Issue{}
-	for _, ds := range prov.Resources {
+	for _, r := range prov.Resources {
+		// if r.Name == "aws_ssm_maintenance_window_task" {
+		// 	r.ReadFunc.WriteTo(os.Stdout)
+		// }
+
 		for _, rule := range resourceRules {
-			newIssues, err := rule.CheckResource(&ds)
+			newIssues, err := rule.CheckResource(&r)
 			if err != nil {
 				log.Fatal(err)
 			}

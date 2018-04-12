@@ -36,8 +36,8 @@ func (p *Provider) DataSource(name string) *Resource {
 
 // Resource represents the data for a resource or data source of the provider.
 type Resource struct {
-	Name        string // azurerm_image
-	FuncComment string // Use this data source to access information about an Image.
+	Name        string
+	FuncComment string
 
 	Func       *ssa.Function
 	CreateFunc *ssa.Function
@@ -47,6 +47,11 @@ type Resource struct {
 	ExistsFunc *ssa.Function
 
 	Attributes []Attribute
+
+	// PartialParse indicates that there is a high probability the full details were not read
+	// for the resource.
+	PartialParse bool
+	// TODO: start setting this flag where warnings are logged
 }
 
 func findAttribute(atts []Attribute, name string) *Attribute {

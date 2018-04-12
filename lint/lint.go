@@ -24,5 +24,5 @@ func NewIssuef(id string, pos token.Pos, format string, args ...interface{}) Iss
 }
 
 type ResourceRule interface {
-	CheckResource(r *provparse.Resource) ([]Issue, error)
+	CheckResource(*provparse.Resource) ([]Issue, error)
 }
