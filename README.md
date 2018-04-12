@@ -27,3 +27,4 @@ $ tfprovlint github.com/terraform-providers/terraform-provider-aws/aws
 * Allow a configuration file to turn on and off rules
 * Make the partial parse state cleaner when dynamic schema is detected
 * More rules!!
+* See additional `TODO` comments [in the code](https://github.com/paultyng/tfprovlint/search?l=Go&q=TODO&type=)
