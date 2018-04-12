@@ -15,9 +15,9 @@ type ruleFactoryFunc func() lint.ResourceRule
 var resourceRules = map[string]ruleFactoryFunc{
 	"tfprovlint001": rules.NewNoSetIdInDeleteFuncRule,
 	"tfprovlint002": rules.NewSetAttributeNameExistsRule,
-	// "tfprovlint003": use proper types in set
+	"tfprovlint003": rules.NewUseProperAttributeTypesInSetRule,
 	// "tfprovlint004": err check sets on complex types
-	"tfprovlint005": rules.NewDoNotDereferencePointersInSet,
+	"tfprovlint005": rules.NewDoNotDereferencePointersInSetRule,
 }
 
 type issueResult struct {
