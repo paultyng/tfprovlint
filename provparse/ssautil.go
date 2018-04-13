@@ -165,10 +165,7 @@ func structFieldValue(instrs []ssa.Instruction, structType, fieldName string) ss
 			}
 			return true
 		})
-		if store != nil {
-			return false
-		}
-		return true
+		return store != nil
 	})
 	if store == nil {
 		return nil

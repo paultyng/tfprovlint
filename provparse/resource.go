@@ -114,14 +114,17 @@ const (
 	TypeSet
 )
 
+// Pos returns the location of the AST token most closely associated.
 func (p *Provider) Pos() token.Pos {
 	return p.pos
 }
 
+// Pos returns the location of the AST token most closely associated.
 func (r *Resource) Pos() token.Pos {
 	return r.pos
 }
 
+// Pos returns the location of the AST token most closely associated.
 func (a *Attribute) Pos() token.Pos {
 	return a.pos
 }

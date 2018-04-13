@@ -14,10 +14,6 @@ import (
 	"github.com/paultyng/tfprovlint/rules"
 )
 
-type ui interface {
-	Say(string)
-}
-
 type lintCommand struct {
 	UI cli.Ui
 }

@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/types"
 	"log"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,27 +18,6 @@ const (
 	resourceStructTypeName = "github.com/hashicorp/terraform/helper/schema.Resource"
 	schemaStructTypeName   = "github.com/hashicorp/terraform/helper/schema.Schema"
 )
-
-func importInfo(imp *ast.ImportSpec) (ident string, path string, err error) {
-	path, err = strconv.Unquote(imp.Path.Value)
-	if err != nil {
-		return "", "", nil
-	}
-	if imp.Name != nil && imp.Name.Name != "" {
-		ident = imp.Name.Name
-	} else {
-		ident = filepath.Base(path)
-	}
-	return
-}
-
-func (p *provParser) schemaFunc(name string) *ssa.Function {
-	f := p.pkg.Func(name)
-	if p.isSchemaFunc(f) {
-		return f
-	}
-	return nil
-}
 
 func (p *provParser) resourceFunc(name string) *ssa.Function {
 	f := p.pkg.Func(name)
@@ -192,14 +170,6 @@ func (p *provParser) hasResultSelectorName(f *ssa.Function, i int, pack, selecto
 
 func (p *provParser) isResourceFunc(f *ssa.Function) bool {
 	return p.hasResultSelectorName(f, 0, pkgTFHelperSchema, "Resource")
-}
-
-func (p *provParser) isProviderFunc(f *ssa.Function) bool {
-	return p.hasResultSelectorName(f, 0, "github.com/hashicorp/terraform/terraform", "ResourceProvider")
-}
-
-func (p *provParser) isSchemaFunc(f *ssa.Function) bool {
-	return p.hasResultSelectorName(f, 0, pkgTFHelperSchema, "Schema")
 }
 
 func (p *provParser) lookupResourceFunc(f *ssa.Function, key string) (*ssa.Function, error) {
@@ -375,12 +345,4 @@ func (p *provParser) buildAttribute(name string, v ssa.Value) (Attribute, error)
 	}
 
 	return att, nil
-}
-
-func skipFirstLine(s string) string {
-	parts := strings.SplitN(s, "\n", 2)
-	if len(parts) > 1 {
-		return parts[1]
-	}
-	return ""
 }
