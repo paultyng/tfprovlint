@@ -303,7 +303,8 @@ func (p *provParser) appendAttributes(attrs *[]Attribute, schemaVal ssa.Value) e
 			return wrapNodeErrorf(err, cons, "error unquoting key")
 		}
 
-		att, err := p.buildAttribute(attName, mapUpdate.Value)
+		mapUpdateVal := rootValue(mapUpdate.Value)
+		att, err := p.buildAttribute(attName, mapUpdateVal)
 		if err != nil {
 			return wrapNodeErrorf(err, mapUpdate, "unable to build attribute %q", attName)
 		}

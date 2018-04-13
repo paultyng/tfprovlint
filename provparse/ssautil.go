@@ -71,6 +71,24 @@ func rootValue(v ssa.Value) ssa.Value {
 			return walk(v.X)
 		case *ssa.ChangeType:
 			return walk(v.X)
+		case ssa.CallInstruction:
+			if callee := v.Common().StaticCallee(); callee != nil {
+				if visited[callee] {
+					return v.(ssa.Value)
+				}
+				visited[callee] = true
+				calleeInstrs := funcInstructions(callee)
+				var retValue ssa.Value
+				inspectInstructions(calleeInstrs, func(ins ssa.Instruction) bool {
+					if ret, ok := ins.(*ssa.Return); ok {
+						// assume first result?
+						retValue = ret.Results[0]
+						return false
+					}
+					return true
+				})
+				return retValue
+			}
 		}
 		return v
 	}
