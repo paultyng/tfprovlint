@@ -41,18 +41,7 @@ func TestDoNotDereferencePointersInSet(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if c.expectedMsg == "" {
-				if len(actualIssues) > 0 {
-					t.Fatalf("expected no issues but found %d", len(actualIssues))
-				}
-				return
-			}
-			if len(actualIssues) != 1 {
-				t.Fatalf("expected only a single issue to be found (not %d)", len(actualIssues))
-			}
-			if msg := actualIssues[0].Message; msg != c.expectedMsg {
-				t.Fatalf("unexpected message %q", msg)
-			}
+			assertIssueMsg(t, c.expectedMsg, actualIssues)
 		})
 	}
 }

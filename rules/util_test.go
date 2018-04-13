@@ -6,10 +6,29 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"testing"
 
+	"github.com/paultyng/tfprovlint/lint"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
 )
+
+func assertIssueMsg(t *testing.T, expectedMsg string, issues []lint.Issue) {
+	t.Helper()
+
+	if expectedMsg == "" {
+		if len(issues) > 0 {
+			t.Fatalf("expected no issues but found %d", len(issues))
+		}
+		return
+	}
+	if len(issues) != 1 {
+		t.Fatalf("expected only a single issue to be found (not %d)", len(issues))
+	}
+	if msg := issues[0].Message; msg != expectedMsg {
+		t.Fatalf("unexpected message %q", msg)
+	}
+}
 
 func stringSliceToSet(values []string) map[string]bool {
 	set := make(map[string]bool, len(values))
