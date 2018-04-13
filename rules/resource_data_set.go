@@ -9,6 +9,7 @@ import (
 
 	"github.com/paultyng/tfprovlint/lint"
 	"github.com/paultyng/tfprovlint/provparse"
+	"github.com/paultyng/tfprovlint/ssahelp"
 )
 
 const (
@@ -24,7 +25,7 @@ var _ lint.ResourceRule = &resourceDataSet{}
 func (rule *resourceDataSet) checkResourceFunc(r *provparse.Resource, f *ssa.Function) ([]lint.Issue, error) {
 	var issues []lint.Issue
 	var inspectErr error
-	inspectInstructions(r.ReadFunc, func(ins ssa.Instruction) bool {
+	ssahelp.InspectInstructions(ssahelp.FuncInstructions(f), func(ins ssa.Instruction) bool {
 		ssacall, ok := ins.(ssa.CallInstruction)
 		if !ok {
 			return true
@@ -41,7 +42,7 @@ func (rule *resourceDataSet) checkResourceFunc(r *provparse.Resource, f *ssa.Fun
 				}
 
 				nameArg := ssacall.Common().Args[1]
-				nameArg = valueBeforeInterface(nameArg)
+				nameArg = ssahelp.RootValue(nameArg)
 				var attName string
 				switch nameArg := nameArg.(type) {
 				case *ssa.Const:

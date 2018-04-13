@@ -1,4 +1,4 @@
-package provparse
+package ssahelp
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-func funcInstructions(f *ssa.Function) []ssa.Instruction {
+func FuncInstructions(f *ssa.Function) []ssa.Instruction {
 	if f.Blocks == nil {
 		return nil
 	}
@@ -22,8 +22,8 @@ func funcInstructions(f *ssa.Function) []ssa.Instruction {
 	return instrs
 }
 
-// inspectInstructions walks instructions follows calls
-func inspectInstructions(instrs []ssa.Instruction, cb func(ins ssa.Instruction) bool) {
+// InspectInstructions walks instructions follows calls
+func InspectInstructions(instrs []ssa.Instruction, cb func(ins ssa.Instruction) bool) {
 	visited := map[*ssa.Function]bool{}
 
 	var walk func(instrs []ssa.Instruction) bool
@@ -43,7 +43,7 @@ func inspectInstructions(instrs []ssa.Instruction, cb func(ins ssa.Instruction) 
 					return true
 				}
 				visited[callee] = true
-				calleeInstrs := funcInstructions(callee)
+				calleeInstrs := FuncInstructions(callee)
 				if !walk(calleeInstrs) {
 					return false
 				}
@@ -56,7 +56,7 @@ func inspectInstructions(instrs []ssa.Instruction, cb func(ins ssa.Instruction) 
 	walk(instrs)
 }
 
-func rootValue(v ssa.Value) ssa.Value {
+func RootValue(v ssa.Value) ssa.Value {
 	visited := map[ssa.Value]bool{}
 	var walk func(v ssa.Value) ssa.Value
 	walk = func(v ssa.Value) ssa.Value {
@@ -77,9 +77,9 @@ func rootValue(v ssa.Value) ssa.Value {
 					return v.(ssa.Value)
 				}
 				visited[callee] = true
-				calleeInstrs := funcInstructions(callee)
+				calleeInstrs := FuncInstructions(callee)
 				var retValue ssa.Value
-				inspectInstructions(calleeInstrs, func(ins ssa.Instruction) bool {
+				InspectInstructions(calleeInstrs, func(ins ssa.Instruction) bool {
 					if ret, ok := ins.(*ssa.Return); ok {
 						// assume first result?
 						retValue = ret.Results[0]
@@ -95,12 +95,12 @@ func rootValue(v ssa.Value) ssa.Value {
 	return walk(v)
 }
 
-func structFieldStringValue(instrs []ssa.Instruction, structType, fieldName string) string {
-	v := structFieldValue(instrs, structType, fieldName)
+func StructFieldStringValue(instrs []ssa.Instruction, structType, fieldName string) string {
+	v := StructFieldValue(instrs, structType, fieldName)
 	if v == nil {
 		return ""
 	}
-	v = rootValue(v)
+	v = RootValue(v)
 
 	switch v := v.(type) {
 	case *ssa.Const:
@@ -114,12 +114,12 @@ func structFieldStringValue(instrs []ssa.Instruction, structType, fieldName stri
 	}
 }
 
-func structFieldBoolValue(instrs []ssa.Instruction, structType, fieldName string) bool {
-	v := structFieldValue(instrs, structType, fieldName)
+func StructFieldBoolValue(instrs []ssa.Instruction, structType, fieldName string) bool {
+	v := StructFieldValue(instrs, structType, fieldName)
 	if v == nil {
 		return false
 	}
-	v = rootValue(v)
+	v = RootValue(v)
 
 	switch v := v.(type) {
 	case *ssa.Const:
@@ -133,9 +133,9 @@ func structFieldBoolValue(instrs []ssa.Instruction, structType, fieldName string
 	}
 }
 
-func structFieldValue(instrs []ssa.Instruction, structType, fieldName string) ssa.Value {
+func StructFieldValue(instrs []ssa.Instruction, structType, fieldName string) ssa.Value {
 	var store *ssa.Store
-	inspectInstructions(instrs, func(ins ssa.Instruction) bool {
+	InspectInstructions(instrs, func(ins ssa.Instruction) bool {
 		fieldAddr, ok := ins.(*ssa.FieldAddr)
 		if !ok {
 			return true
@@ -144,7 +144,7 @@ func structFieldValue(instrs []ssa.Instruction, structType, fieldName string) ss
 		if ptr, ok := t.(*types.Pointer); ok {
 			t = ptr.Elem()
 		}
-		if !typeMatch(t, structType) {
+		if !TypeMatch(t, structType) {
 			return true
 		}
 		if named, ok := t.(*types.Named); ok {
@@ -158,7 +158,7 @@ func structFieldValue(instrs []ssa.Instruction, structType, fieldName string) ss
 		if field.Name() != fieldName {
 			return true
 		}
-		inspectInstructions(*fieldAddr.Referrers(), func(ins ssa.Instruction) bool {
+		InspectInstructions(*fieldAddr.Referrers(), func(ins ssa.Instruction) bool {
 			var ok bool
 			if store, ok = ins.(*ssa.Store); ok {
 				return false
@@ -174,14 +174,14 @@ func structFieldValue(instrs []ssa.Instruction, structType, fieldName string) ss
 	return store.Val
 }
 
-func typeMatch(t types.Type, name string) bool {
+func TypeMatch(t types.Type, name string) bool {
 	buf := &bytes.Buffer{}
-	types.WriteType(buf, t, normalizePkgPath)
+	types.WriteType(buf, t, NormalizePkgPath)
 	normalizedTypeName := buf.String()
 	return name == normalizedTypeName
 }
 
-func normalizePkgPath(pkg *types.Package) string {
+func NormalizePkgPath(pkg *types.Package) string {
 	const vendor = "/vendor/"
 	pkgPath := pkg.Path()
 	if i := strings.LastIndex(pkgPath, vendor); i != -1 {

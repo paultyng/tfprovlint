@@ -7,6 +7,7 @@ import (
 
 	"github.com/paultyng/tfprovlint/lint"
 	"github.com/paultyng/tfprovlint/provparse"
+	"github.com/paultyng/tfprovlint/ssahelp"
 )
 
 const (
@@ -39,7 +40,7 @@ func (rule *callBlacklist) CheckResource(r *provparse.Resource) ([]lint.Issue, e
 func functionCalls(f *ssa.Function, callList map[string]bool) map[string]token.Pos {
 	calls := map[string]token.Pos{}
 
-	inspectInstructions(f, func(ins ssa.Instruction) bool {
+	ssahelp.InspectInstructions(ssahelp.FuncInstructions(f), func(ins ssa.Instruction) bool {
 		ssacall, ok := ins.(ssa.CallInstruction)
 		if !ok {
 			return true

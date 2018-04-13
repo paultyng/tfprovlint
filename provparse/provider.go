@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/ssa"
+
+	"github.com/paultyng/tfprovlint/ssahelp"
 )
 
 const (
@@ -173,11 +175,11 @@ func (p *provParser) isResourceFunc(f *ssa.Function) bool {
 }
 
 func (p *provParser) lookupResourceFunc(f *ssa.Function, key string) (*ssa.Function, error) {
-	v := structFieldValue(funcInstructions(f), resourceStructTypeName, key)
+	v := ssahelp.StructFieldValue(ssahelp.FuncInstructions(f), resourceStructTypeName, key)
 	if v == nil {
 		return nil, nil
 	}
-	v = rootValue(v)
+	v = ssahelp.RootValue(v)
 	// TODO: handle Noop and RemoveFromState
 	resourceFunc, ok := v.(*ssa.Function)
 	if !ok {
@@ -226,14 +228,14 @@ func (p *provParser) buildResource(name string, rf *ssa.Function) (*Resource, er
 		ExistsFunc: exists,
 	}
 
-	schemaVal := structFieldValue(funcInstructions(rf), resourceStructTypeName, "Schema")
+	schemaVal := ssahelp.StructFieldValue(ssahelp.FuncInstructions(rf), resourceStructTypeName, "Schema")
 	if schemaVal == nil {
 		// unable to find schema
 		// TODO: log warning?
 		r.PartialParse = true
 		return r, nil
 	}
-	schemaVal = rootValue(schemaVal)
+	schemaVal = ssahelp.RootValue(schemaVal)
 
 	attrs := []Attribute{}
 	err = p.appendAttributes(&attrs, schemaVal)
@@ -266,7 +268,7 @@ func (p *provParser) appendAttributes(attrs *[]Attribute, schemaVal ssa.Value) e
 			continue
 		}
 
-		keyVal := rootValue(mapUpdate.Key)
+		keyVal := ssahelp.RootValue(mapUpdate.Key)
 		cons, ok := keyVal.(*ssa.Const)
 		if !ok {
 			return nodeErrorf(keyVal, "unable to determine Schema key for %T", keyVal)
@@ -276,7 +278,7 @@ func (p *provParser) appendAttributes(attrs *[]Attribute, schemaVal ssa.Value) e
 			return wrapNodeErrorf(err, cons, "error unquoting key")
 		}
 
-		mapUpdateVal := rootValue(mapUpdate.Value)
+		mapUpdateVal := ssahelp.RootValue(mapUpdate.Value)
 		att, err := p.buildAttribute(attName, mapUpdateVal)
 		if err != nil {
 			return wrapNodeErrorf(err, mapUpdate, "unable to build attribute %q", attName)
@@ -291,20 +293,20 @@ func (p *provParser) buildAttribute(name string, v ssa.Value) (Attribute, error)
 	refs := *v.Referrers()
 	att := Attribute{
 		Name:        name,
-		Description: strings.TrimSpace(structFieldStringValue(refs, schemaStructTypeName, "Description")),
-		Required:    structFieldBoolValue(refs, schemaStructTypeName, "Required"),
-		Optional:    structFieldBoolValue(refs, schemaStructTypeName, "Optional"),
-		Computed:    structFieldBoolValue(refs, schemaStructTypeName, "Computed"),
+		Description: strings.TrimSpace(ssahelp.StructFieldStringValue(refs, schemaStructTypeName, "Description")),
+		Required:    ssahelp.StructFieldBoolValue(refs, schemaStructTypeName, "Required"),
+		Optional:    ssahelp.StructFieldBoolValue(refs, schemaStructTypeName, "Optional"),
+		Computed:    ssahelp.StructFieldBoolValue(refs, schemaStructTypeName, "Computed"),
 		Type:        TypeInvalid,
 
 		pos: v.Pos(),
 	}
 
-	typeVal := structFieldValue(refs, schemaStructTypeName, "Type")
+	typeVal := ssahelp.StructFieldValue(refs, schemaStructTypeName, "Type")
 	if typeVal == nil {
 		return Attribute{}, nodeErrorf(v, "unable to extract Schema.Type for attribute %q", name)
 	}
-	typeVal = rootValue(typeVal)
+	typeVal = ssahelp.RootValue(typeVal)
 	cst, ok := typeVal.(*ssa.Const)
 	if !ok {
 		return Attribute{}, nodeErrorf(typeVal, "unable to find Type const %T", typeVal)
@@ -329,9 +331,9 @@ func (p *provParser) buildAttribute(name string, v ssa.Value) (Attribute, error)
 		return Attribute{}, nodeErrorf(cst, "unexpected type %q", cst.Value.ExactString())
 	}
 
-	schemaVal := structFieldValue(refs, schemaStructTypeName, "Schema")
+	schemaVal := ssahelp.StructFieldValue(refs, schemaStructTypeName, "Schema")
 	if schemaVal != nil {
-		schemaVal = rootValue(schemaVal)
+		schemaVal = ssahelp.RootValue(schemaVal)
 
 		attrs := []Attribute{}
 		if err := p.appendAttributes(&attrs, schemaVal); err != nil {

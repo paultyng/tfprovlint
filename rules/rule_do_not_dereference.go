@@ -3,9 +3,11 @@ package rules
 import (
 	"go/token"
 
+	"golang.org/x/tools/go/ssa"
+
 	"github.com/paultyng/tfprovlint/lint"
 	"github.com/paultyng/tfprovlint/provparse"
-	"golang.org/x/tools/go/ssa"
+	"github.com/paultyng/tfprovlint/ssahelp"
 )
 
 func NewDoNotDereferencePointersInSetRule() lint.ResourceRule {
@@ -18,7 +20,7 @@ func doNotDereferencePointersInSet(r *provparse.Resource, att *provparse.Attribu
 	var issues []lint.Issue
 
 	argValue := ssacall.Common().Args[2]
-	argValue = valueBeforeInterface(argValue)
+	argValue = ssahelp.RootValue(argValue)
 	switch argValue := argValue.(type) {
 	case *ssa.UnOp:
 		if argValue.Op == token.MUL {

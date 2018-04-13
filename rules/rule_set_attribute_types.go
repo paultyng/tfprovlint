@@ -5,9 +5,11 @@ import (
 	"go/types"
 	"log"
 
+	"golang.org/x/tools/go/ssa"
+
 	"github.com/paultyng/tfprovlint/lint"
 	"github.com/paultyng/tfprovlint/provparse"
-	"golang.org/x/tools/go/ssa"
+	"github.com/paultyng/tfprovlint/ssahelp"
 )
 
 var allowedBasicKind = map[provparse.AttributeType][]types.BasicKind{
@@ -56,7 +58,7 @@ func useProperAttributeTypesInSet(r *provparse.Resource, att *provparse.Attribut
 	}
 
 	argValue := ssacall.Common().Args[2]
-	argValue = valueBeforeInterface(argValue)
+	argValue = ssahelp.RootValue(argValue)
 	t := argValue.Type()
 
 	if ptr, ok := t.(*types.Pointer); ok {

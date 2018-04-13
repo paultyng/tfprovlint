@@ -1,9 +1,10 @@
 package rules
 
 import (
+	"golang.org/x/tools/go/ssa"
+
 	"github.com/paultyng/tfprovlint/lint"
 	"github.com/paultyng/tfprovlint/provparse"
-	"golang.org/x/tools/go/ssa"
 )
 
 func NewSetAttributeNameExistsRule() lint.ResourceRule {
