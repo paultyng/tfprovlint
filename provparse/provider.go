@@ -87,6 +87,8 @@ func (p *provParser) parse() (*Provider, error) {
 		DataSources: dataSources,
 		Resources:   resources,
 		Fset:        p.prog.Fset,
+
+		pos: provFunc.Pos(),
 	}, nil
 }
 
@@ -244,7 +246,8 @@ func (p *provParser) buildResource(name string, rf *ssa.Function) (*Resource, er
 
 	r := &Resource{
 		Name: name,
-		Func: rf,
+
+		pos: rf.Pos(),
 
 		CreateFunc: create,
 		ReadFunc:   read,
@@ -323,6 +326,8 @@ func (p *provParser) buildAttribute(name string, v ssa.Value) (Attribute, error)
 		Optional:    structFieldBoolValue(refs, schemaStructTypeName, "Optional"),
 		Computed:    structFieldBoolValue(refs, schemaStructTypeName, "Computed"),
 		Type:        TypeInvalid,
+
+		pos: v.Pos(),
 	}
 
 	typeVal := structFieldValue(refs, schemaStructTypeName, "Type")

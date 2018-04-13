@@ -10,7 +10,7 @@ import (
 
 func NewDoNotDereferencePointersInSetRule() lint.ResourceRule {
 	return &resourceDataSet{
-		CheckAttribute: doNotDereferencePointersInSet,
+		CheckAttributeSet: doNotDereferencePointersInSet,
 	}
 }
 

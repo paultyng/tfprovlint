@@ -36,7 +36,7 @@ var allowedBasicKind = map[provparse.AttributeType][]types.BasicKind{
 
 func NewUseProperAttributeTypesInSetRule() lint.ResourceRule {
 	return &resourceDataSet{
-		CheckAttribute: useProperAttributeTypesInSet,
+		CheckAttributeSet: useProperAttributeTypesInSet,
 	}
 }
 

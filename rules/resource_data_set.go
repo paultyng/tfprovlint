@@ -16,64 +16,90 @@ const (
 )
 
 type resourceDataSet struct {
-	CheckAttribute func(*provparse.Resource, *provparse.Attribute, string, ssa.CallInstruction) ([]lint.Issue, error)
+	CheckAttributeSet func(*provparse.Resource, *provparse.Attribute, string, ssa.CallInstruction) ([]lint.Issue, error)
 }
 
 var _ lint.ResourceRule = &resourceDataSet{}
 
-func (rule *resourceDataSet) CheckResource(r *provparse.Resource) ([]lint.Issue, error) {
+func (rule *resourceDataSet) checkResourceFunc(r *provparse.Resource, f *ssa.Function) ([]lint.Issue, error) {
 	var issues []lint.Issue
+	var inspectErr error
+	inspectInstructions(r.ReadFunc, func(ins ssa.Instruction) bool {
+		ssacall, ok := ins.(ssa.CallInstruction)
+		if !ok {
+			return true
+		}
 
-	// sets are mainly done in reads, but we could also probably check creates and updates
-	if r.ReadFunc != nil {
-		var inspectErr error
-		inspectInstructions(r.ReadFunc, func(ins ssa.Instruction) bool {
-			ssacall, ok := ins.(ssa.CallInstruction)
-			if !ok {
-				return true
-			}
+		if callee := ssacall.Common().StaticCallee(); callee != nil {
+			calleeName := normalizeSSAFunctionString(callee)
 
-			if callee := ssacall.Common().StaticCallee(); callee != nil {
-				calleeName := normalizeSSAFunctionString(callee)
+			if calleeName == setCallee {
+				// look at the set!
+				if len(ssacall.Common().Args) != 3 {
+					inspectErr = fmt.Errorf("incorrect args count for ResourceData.Set call: %d", len(ssacall.Common().Args))
+					return false
+				}
 
-				if calleeName == setCallee {
-					// look at the set!
-					if len(ssacall.Common().Args) != 3 {
-						inspectErr = fmt.Errorf("incorrect args count for ResourceData.Set call: %d", len(ssacall.Common().Args))
-						return false
-					}
-
-					nameArg := ssacall.Common().Args[1]
-					nameArg = valueBeforeInterface(nameArg)
-					var attName string
-					switch nameArg := nameArg.(type) {
-					case *ssa.Const:
-						var err error
-						attName, err = strconv.Unquote(nameArg.Value.ExactString())
-						if err != nil {
-							inspectErr = err
-							return false
-						}
-					}
-					if attName == "" {
-						log.Printf("[WARN] unable to determine what attribute is being set in %s", r.ReadFunc.Name())
-						return true
-					}
-					att := r.Attribute(attName)
-					newIssues, err := rule.CheckAttribute(r, att, attName, ssacall)
+				nameArg := ssacall.Common().Args[1]
+				nameArg = valueBeforeInterface(nameArg)
+				var attName string
+				switch nameArg := nameArg.(type) {
+				case *ssa.Const:
+					var err error
+					attName, err = strconv.Unquote(nameArg.Value.ExactString())
 					if err != nil {
 						inspectErr = err
 						return false
 					}
-					issues = append(issues, newIssues...)
 				}
+				if attName == "" {
+					log.Printf("[WARN] unable to determine what attribute is being set in %s", r.ReadFunc.Name())
+					return true
+				}
+				att := r.Attribute(attName)
+				newIssues, err := rule.CheckAttributeSet(r, att, attName, ssacall)
+				if err != nil {
+					inspectErr = err
+					return false
+				}
+				issues = append(issues, newIssues...)
 			}
-
-			return true
-		})
-		if inspectErr != nil {
-			return nil, inspectErr
 		}
+
+		return true
+	})
+	if inspectErr != nil {
+		return nil, inspectErr
+	}
+	return issues, nil
+}
+
+func (rule *resourceDataSet) CheckResource(r *provparse.Resource) ([]lint.Issue, error) {
+	var issues []lint.Issue
+
+	if r.ReadFunc != nil {
+		newIssues, err := rule.checkResourceFunc(r, r.ReadFunc)
+		if err != nil {
+			return nil, err
+		}
+		issues = append(issues, newIssues...)
+	}
+
+	// sets are mainly done in reads, but we  also  check creates and updates
+	if r.CreateFunc != nil {
+		newIssues, err := rule.checkResourceFunc(r, r.CreateFunc)
+		if err != nil {
+			return nil, err
+		}
+		issues = append(issues, newIssues...)
+	}
+
+	if r.UpdateFunc != nil {
+		newIssues, err := rule.checkResourceFunc(r, r.UpdateFunc)
+		if err != nil {
+			return nil, err
+		}
+		issues = append(issues, newIssues...)
 	}
 
 	return issues, nil

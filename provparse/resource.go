@@ -12,6 +12,8 @@ type Provider struct {
 	Resources   []Resource
 	DataSources []Resource
 	Fset        *token.FileSet
+
+	pos token.Pos
 }
 
 func findResource(resources []Resource, name string) *Resource {
@@ -38,7 +40,6 @@ func (p *Provider) DataSource(name string) *Resource {
 type Resource struct {
 	Name string
 
-	Func       *ssa.Function
 	CreateFunc *ssa.Function
 	ReadFunc   *ssa.Function
 	UpdateFunc *ssa.Function
@@ -51,6 +52,8 @@ type Resource struct {
 	// for the resource.
 	PartialParse bool
 	// TODO: start setting this flag where warnings are logged
+
+	pos token.Pos
 }
 
 func findAttribute(atts []Attribute, name string) *Attribute {
@@ -85,6 +88,8 @@ type Attribute struct {
 	Type AttributeType
 
 	Attributes []Attribute
+
+	pos token.Pos
 }
 
 // AttributeType maps roughly to helper/schema.ValueType
