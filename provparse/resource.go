@@ -9,6 +9,7 @@ import (
 // Provider represents the data for the provider.
 type Provider struct {
 	Name        string
+	Attributes  []Attribute
 	Resources   []Resource
 	DataSources []Resource
 	Fset        *token.FileSet
@@ -66,6 +67,11 @@ func findAttribute(atts []Attribute, name string) *Attribute {
 	return nil
 }
 
+// Attribute returns an attribute of the provider by name or nil if not found.
+func (p *Provider) Attribute(name string) *Attribute {
+	return findAttribute(p.Attributes, name)
+}
+
 // Attribute returns an attribute of the resource by name or nil if not found.
 func (r *Resource) Attribute(name string) *Attribute {
 	return findAttribute(r.Attributes, name)
@@ -107,3 +113,15 @@ const (
 	TypeMap
 	TypeSet
 )
+
+func (p *Provider) Pos() token.Pos {
+	return p.pos
+}
+
+func (r *Resource) Pos() token.Pos {
+	return r.pos
+}
+
+func (a *Attribute) Pos() token.Pos {
+	return a.pos
+}
