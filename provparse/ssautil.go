@@ -2,52 +2,58 @@ package provparse
 
 import (
 	"bytes"
+	"fmt"
 	"go/types"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/ssa"
 )
 
-// inspectInstructions walks instructions in a function and follows calls
-func inspectInstructions(start *ssa.Function, cb func(ins ssa.Instruction) bool) {
+func funcInstructions(f *ssa.Function) []ssa.Instruction {
+	if f.Blocks == nil {
+		return nil
+	}
+
+	instrs := []ssa.Instruction{}
+	for _, b := range f.Blocks {
+		instrs = append(instrs, b.Instrs...)
+	}
+	return instrs
+}
+
+// inspectInstructions walks instructions follows calls
+func inspectInstructions(instrs []ssa.Instruction, cb func(ins ssa.Instruction) bool) {
 	visited := map[*ssa.Function]bool{}
 
-	var walk func(f *ssa.Function) bool
-	walk = func(f *ssa.Function) bool {
-		if visited[f] {
-			// log.Printf("[TRACE] already visited function %s", f.String())
-			return true
-		}
-		visited[f] = true
+	var walk func(instrs []ssa.Instruction) bool
+	walk = func(instrs []ssa.Instruction) bool {
+		for _, ins := range instrs {
+			if !cb(ins) {
+				return false
+			}
 
-		if f.Blocks == nil {
-			// log.Printf("[TRACE] ignoring external function %s", f.String())
-			return true
-		}
+			ssacall, ok := ins.(ssa.CallInstruction)
+			if !ok {
+				continue
+			}
 
-		for _, b := range f.Blocks {
-			for _, ins := range b.Instrs {
-				if !cb(ins) {
+			if callee := ssacall.Common().StaticCallee(); callee != nil {
+				if visited[callee] {
+					return true
+				}
+				visited[callee] = true
+				calleeInstrs := funcInstructions(callee)
+				if !walk(calleeInstrs) {
 					return false
 				}
-
-				ssacall, ok := ins.(ssa.CallInstruction)
-				if !ok {
-					continue
-				}
-
-				if callee := ssacall.Common().StaticCallee(); callee != nil {
-					if !walk(callee) {
-						return false
-					}
-				}
-
 			}
+
 		}
 
 		return true
 	}
-	walk(start)
+	walk(instrs)
 }
 
 func rootValue(v ssa.Value) ssa.Value {
@@ -71,15 +77,48 @@ func rootValue(v ssa.Value) ssa.Value {
 	return walk(v)
 }
 
-func findStructFieldStore(f *ssa.Function, structType string, fieldName string) *ssa.Store {
-	var store *ssa.Store
-	inspectInstructions(f, func(ins ssa.Instruction) bool {
-		var ok bool
-		store, ok = ins.(*ssa.Store)
-		if !ok {
-			return true
+func structFieldStringValue(instrs []ssa.Instruction, structType, fieldName string) string {
+	v := structFieldValue(instrs, structType, fieldName)
+	if v == nil {
+		return ""
+	}
+	v = rootValue(v)
+
+	switch v := v.(type) {
+	case *ssa.Const:
+		s, err := strconv.Unquote(v.Value.ExactString())
+		if err != nil {
+			panic(fmt.Sprintf("unable to unquote string value: %s", err))
 		}
-		fieldAddr, ok := store.Addr.(*ssa.FieldAddr)
+		return s
+	default:
+		panic(fmt.Sprintf("unexpected value type %T", v))
+	}
+}
+
+func structFieldBoolValue(instrs []ssa.Instruction, structType, fieldName string) bool {
+	v := structFieldValue(instrs, structType, fieldName)
+	if v == nil {
+		return false
+	}
+	v = rootValue(v)
+
+	switch v := v.(type) {
+	case *ssa.Const:
+		b, err := strconv.ParseBool(v.Value.ExactString())
+		if err != nil {
+			panic(fmt.Sprintf("unable to parse bool: %s", err))
+		}
+		return b
+	default:
+		panic(fmt.Sprintf("unexpected value type %T", v))
+	}
+}
+
+func structFieldValue(instrs []ssa.Instruction, structType, fieldName string) ssa.Value {
+	var store *ssa.Store
+	inspectInstructions(instrs, func(ins ssa.Instruction) bool {
+		fieldAddr, ok := ins.(*ssa.FieldAddr)
 		if !ok {
 			return true
 		}
@@ -101,9 +140,23 @@ func findStructFieldStore(f *ssa.Function, structType string, fieldName string) 
 		if field.Name() != fieldName {
 			return true
 		}
-		return false
+		inspectInstructions(*fieldAddr.Referrers(), func(ins ssa.Instruction) bool {
+			var ok bool
+			if store, ok = ins.(*ssa.Store); ok {
+				return false
+			}
+			return true
+		})
+		if store != nil {
+			return false
+		}
+		return true
 	})
-	return store
+	if store == nil {
+		return nil
+	}
+
+	return store.Val
 }
 
 func typeMatch(t types.Type, name string) bool {

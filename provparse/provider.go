@@ -3,7 +3,6 @@ package provparse
 import (
 	"fmt"
 	"go/ast"
-	"go/token"
 	"go/types"
 	"log"
 	"path/filepath"
@@ -18,6 +17,7 @@ const (
 	pkgTFHelperSchema = "github.com/hashicorp/terraform/helper/schema"
 
 	resourceStructTypeName = "github.com/hashicorp/terraform/helper/schema.Resource"
+	schemaStructTypeName   = "github.com/hashicorp/terraform/helper/schema.Schema"
 )
 
 func importInfo(imp *ast.ImportSpec) (ident string, path string, err error) {
@@ -200,60 +200,16 @@ func (p *provParser) isSchemaFunc(f *ssa.Function) bool {
 	return p.hasResultSelectorName(f, 0, pkgTFHelperSchema, "Schema")
 }
 
-func walkToKey(n ast.Node, key string) ast.Expr {
-	var r ast.Expr
-	ast.Inspect(n, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.KeyValueExpr:
-			if k, ok := n.Key.(*ast.Ident); ok && k.Name == key {
-				r = n.Value
-			}
-		}
-
-		return r == nil
-	})
-	return r
-}
-
-func walkToSchema(n ast.Node) (*ast.CompositeLit, error) {
-	schemaAst := walkToKey(n, "Schema")
-	if schemaAst == nil {
-		return nil, nil
-	}
-	switch schemaAst := schemaAst.(type) {
-	case *ast.CompositeLit:
-		return schemaAst, nil
-	case *ast.CallExpr:
-		switch fAst := schemaAst.Fun.(type) {
-		case *ast.SelectorExpr:
-			log.Printf("[WARN] loading schema funcs from external packages is not supported yet %v.%s", fAst.X, fAst.Sel.Name)
-			return nil, nil
-		case *ast.Ident:
-			log.Printf("[WARN] loading schema from local/global vars (%q) is not supported yet", fAst.Name)
-			return nil, nil
-		case *ast.FuncLit:
-			log.Printf("[WARN] loading schema inline in a function literal is not supported")
-			return nil, nil
-		}
-		return nil, nodeErrorf(schemaAst.Fun, "unexpected call type %T", schemaAst.Fun)
-	case *ast.Ident:
-		log.Printf("[WARN] loading schema from local/global vars (%q) is not supported yet", schemaAst.Name)
-		return nil, nil
-	}
-
-	return nil, nodeErrorf(schemaAst, "unexpected schema node type %T", schemaAst)
-}
-
 func (p *provParser) lookupResourceFunc(f *ssa.Function, key string) (*ssa.Function, error) {
-	store := findStructFieldStore(f, resourceStructTypeName, key)
-	if store == nil {
+	v := structFieldValue(funcInstructions(f), resourceStructTypeName, key)
+	if v == nil {
 		return nil, nil
 	}
-	v := rootValue(store.Val)
+	v = rootValue(v)
 	// TODO: handle Noop and RemoveFromState
 	resourceFunc, ok := v.(*ssa.Function)
 	if !ok {
-		return nil, nodeErrorf(v, "unable to determine function from value of type %T", v)
+		return nil, nodeErrorf(f, "unable to determine function from value of type %T", v)
 	}
 	return resourceFunc, nil
 }
@@ -297,231 +253,122 @@ func (p *provParser) buildResource(name string, rf *ssa.Function) (*Resource, er
 		ExistsFunc: exists,
 	}
 
-	schemaAst, err := walkToSchema(rf.Syntax())
-	if err != nil {
-		return nil, wrapNodeErrorf(err, rf, "error loading schema for %q", name)
+	schemaVal := structFieldValue(funcInstructions(rf), resourceStructTypeName, "Schema")
+	if schemaVal == nil {
+		// unable to find schema
+		// TODO: log warning?
+		r.PartialParse = true
+		return r, nil
 	}
-	attrs := []Attribute{}
-	if schemaAst != nil {
-		err = p.appendAttributes(&attrs, rf, schemaAst)
-		if err != nil {
-			return nil, fmt.Errorf("error with attributes for %q: %s", name, err)
-		}
+	schemaVal = rootValue(schemaVal)
 
-		sort.Slice(attrs, func(i, j int) bool {
-			return attrs[i].Name < attrs[j].Name
-		})
+	attrs := []Attribute{}
+	err = p.appendAttributes(&attrs, schemaVal)
+	if err != nil {
+		return nil, fmt.Errorf("error with attributes for %q: %s", name, err)
 	}
+
+	sort.Slice(attrs, func(i, j int) bool {
+		return attrs[i].Name < attrs[j].Name
+	})
 	r.Attributes = attrs
 
 	return r, nil
 }
 
-func (p *provParser) appendAttributes(attrs *[]Attribute, rf *ssa.Function, schemaAst *ast.CompositeLit) error {
-	for _, e := range schemaAst.Elts {
-		kv := e.(*ast.KeyValueExpr)
+func (p *provParser) appendAttributes(attrs *[]Attribute, schemaVal ssa.Value) error {
+	makeMap, ok := schemaVal.(*ssa.MakeMap)
+	if !ok {
+		return nodeErrorf(schemaVal, "unable to find the MakeMap, found %T instead", schemaVal)
+	}
 
-		var (
-			k   string
-			err error
-		)
+	refs := makeMap.Referrers()
+	if refs == nil {
+		return nil
+	}
 
-		if bl, ok := kv.Key.(*ast.BasicLit); !ok {
-			return nodeErrorf(kv.Key, "expected a literal string key, got %T", kv.Key)
-		} else {
-			k, err = strconv.Unquote(bl.Value)
-			if err != nil {
-				return err
-			}
+	for _, ref := range *refs {
+		mapUpdate, ok := ref.(*ssa.MapUpdate)
+		if !ok {
+			continue
 		}
 
-		switch v := kv.Value.(type) {
-		case *ast.UnaryExpr:
-			if v.Op != token.AND {
-				return nodeErrorf(v, "unexpected unary operator %v", v.Op)
-			}
-			vlit := v.X.(*ast.CompositeLit)
-			att, err := p.buildAttribute(rf, k, vlit)
-			if err != nil {
-				return err
-			}
-
-			*attrs = append(*attrs, att)
-		case *ast.CompositeLit:
-			att, err := p.buildAttribute(rf, k, v)
-			if err != nil {
-				return err
-			}
-
-			*attrs = append(*attrs, att)
-		case *ast.CallExpr:
-			callName := v.Fun.(*ast.Ident).Name
-			sf := p.schemaFunc(callName)
-			if sf == nil {
-				return fmt.Errorf("unable to find schema func for %s", callName)
-			}
-
-			var childAst *ast.CompositeLit
-			ast.Inspect(sf.Syntax(), func(n ast.Node) bool {
-				switch n := n.(type) {
-				case *ast.CompositeLit:
-					if sel, ok := n.Type.(*ast.SelectorExpr); ok {
-						// TODO: check imported package as well
-						if sel.Sel.Name != "Schema" {
-							return true
-						}
-
-						childAst = n
-					}
-				}
-
-				return childAst == nil
-			})
-
-			att, err := p.buildAttribute(sf, k, childAst)
-			if err != nil {
-				return err
-			}
-
-			*attrs = append(*attrs, att)
-		case *ast.Ident:
-			//local/global var
-			// ignore for now, revisit this...
-			log.Printf("[WARN] ignoring %s in %s, schema assigned from local/global variables are not yet supported", k, rf.Name())
-		default:
-			return nodeErrorf(v, "unexpected schema value node %T for %s", v, k)
+		keyVal := rootValue(mapUpdate.Key)
+		cons, ok := keyVal.(*ssa.Const)
+		if !ok {
+			return nodeErrorf(keyVal, "unable to determine Schema key for %T", keyVal)
 		}
+		attName, err := strconv.Unquote(cons.Value.ExactString())
+		if err != nil {
+			return wrapNodeErrorf(err, cons, "error unquoting key")
+		}
+
+		att, err := p.buildAttribute(attName, mapUpdate.Value)
+		if err != nil {
+			return wrapNodeErrorf(err, mapUpdate, "unable to build attribute %q", attName)
+		}
+		*attrs = append(*attrs, att)
 	}
 
 	return nil
 }
 
-func (p *provParser) buildAttribute(sf *ssa.Function, name string, schema *ast.CompositeLit) (Attribute, error) {
+func (p *provParser) buildAttribute(name string, v ssa.Value) (Attribute, error) {
+	refs := *v.Referrers()
 	att := Attribute{
 		Name:        name,
-		Description: strings.TrimSpace(stringKeyValue(schema, "Description")),
-		Required:    boolKeyValue(schema, "Required"),
-		Optional:    boolKeyValue(schema, "Optional"),
-		Computed:    boolKeyValue(schema, "Computed"),
+		Description: strings.TrimSpace(structFieldStringValue(refs, schemaStructTypeName, "Description")),
+		Required:    structFieldBoolValue(refs, schemaStructTypeName, "Required"),
+		Optional:    structFieldBoolValue(refs, schemaStructTypeName, "Optional"),
+		Computed:    structFieldBoolValue(refs, schemaStructTypeName, "Computed"),
 		Type:        TypeInvalid,
 	}
 
-	st, err := keyValue(schema, "Type")
-	if err != nil {
-		return Attribute{}, err
+	typeVal := structFieldValue(refs, schemaStructTypeName, "Type")
+	if typeVal == nil {
+		return Attribute{}, nodeErrorf(v, "unable to extract Schema.Type for attribute %q", name)
+	}
+	typeVal = rootValue(typeVal)
+	cst, ok := typeVal.(*ssa.Const)
+	if !ok {
+		return Attribute{}, nodeErrorf(typeVal, "unable to find Type const %T", typeVal)
 	}
 
-	switch st := st.(type) {
-	case *ast.SelectorExpr:
-		// TODO: check imported package
-		switch st.Sel.Name {
-		case "TypeBool":
-			att.Type = TypeBool
-		case "TypeInt":
-			att.Type = TypeInt
-		case "TypeFloat":
-			att.Type = TypeFloat
-		case "TypeString":
-			att.Type = TypeString
-		case "TypeList":
-			att.Type = TypeList
-		case "TypeMap":
-			att.Type = TypeMap
-		case "TypeSet":
-			att.Type = TypeSet
-		default:
-			return Attribute{}, nodeErrorf(st, "unexpected type %q", st.Sel.Name)
-		}
+	switch AttributeType(cst.Int64()) {
+	case TypeBool:
+		att.Type = TypeBool
+	case TypeInt:
+		att.Type = TypeInt
+	case TypeFloat:
+		att.Type = TypeFloat
+	case TypeString:
+		att.Type = TypeString
+	case TypeList:
+		att.Type = TypeList
+	case TypeMap:
+		att.Type = TypeMap
+	case TypeSet:
+		att.Type = TypeSet
 	default:
-		return Attribute{}, fmt.Errorf("schema type ast of %T is unexpected", st)
+		return Attribute{}, nodeErrorf(cst, "unexpected type %q", cst.Value.ExactString())
 	}
 
-	// t, err := keyValue(schema, "Type")
-	// if err != nil {
-	// 	return Attribute{}, err
-	// }
+	schemaVal := structFieldValue(refs, schemaStructTypeName, "Schema")
+	if schemaVal != nil {
+		schemaVal = rootValue(schemaVal)
 
-	// TODO: min/max handling
-
-	childSchema, err := walkToSchema(schema)
-	if err != nil {
-		return Attribute{}, fmt.Errorf("unable to find schema for %q: %s", name, err)
-	}
-	if childSchema != nil {
-
-		atts := []Attribute{}
-		err := p.appendAttributes(&atts, sf, childSchema)
-		if err != nil {
-			return Attribute{}, err
+		attrs := []Attribute{}
+		if err := p.appendAttributes(&attrs, schemaVal); err != nil {
+			return Attribute{}, wrapNodeErrorf(err, schemaVal, "error with attributes for %q", name)
 		}
 
-		att.Attributes = atts
+		sort.Slice(attrs, func(i, j int) bool {
+			return attrs[i].Name < attrs[j].Name
+		})
+		att.Attributes = attrs
 	}
 
 	return att, nil
-}
-
-func stringKeyValue(haystack *ast.CompositeLit, needle string) string {
-	v, err := keyValue(haystack, needle)
-	if err != nil {
-		panic(err)
-	}
-	if v == nil {
-		return ""
-	}
-	switch v := v.(type) {
-	case *ast.BasicLit:
-		s, err := strconv.Unquote(v.Value)
-		if err != nil {
-			panic(err)
-		}
-		return s
-	default:
-		panic(fmt.Sprintf("unexpected bool type %T", v))
-	}
-}
-
-func boolKeyValue(haystack *ast.CompositeLit, needle string) bool {
-	v, err := keyValue(haystack, needle)
-	if err != nil {
-		panic(err)
-	}
-	if v == nil {
-		return false
-	}
-	switch v := v.(type) {
-	case *ast.Ident:
-		return v.Name == "true"
-	default:
-		panic(fmt.Sprintf("unexpected bool type %T", v))
-	}
-}
-
-func keyValue(haystack *ast.CompositeLit, needle string) (ast.Expr, error) {
-	for _, e := range haystack.Elts {
-		kv := e.(*ast.KeyValueExpr)
-		var (
-			k   string
-			err error
-		)
-		switch keyAst := kv.Key.(type) {
-		case *ast.BasicLit:
-			k, err = strconv.Unquote(keyAst.Value)
-			if err != nil {
-				return nil, err
-			}
-		case *ast.Ident:
-			k = keyAst.Name
-		default:
-			return nil, fmt.Errorf("unexpected key type %T", keyAst)
-		}
-
-		if k == needle {
-			return kv.Value, nil
-		}
-	}
-
-	return nil, nil
 }
 
 func skipFirstLine(s string) string {
