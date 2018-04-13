@@ -16,6 +16,8 @@ import (
 
 const (
 	pkgTFHelperSchema = "github.com/hashicorp/terraform/helper/schema"
+
+	resourceStructTypeName = "github.com/hashicorp/terraform/helper/schema.Resource"
 )
 
 func importInfo(imp *ast.ImportSpec) (ident string, path string, err error) {
@@ -242,52 +244,44 @@ func walkToSchema(n ast.Node) (*ast.CompositeLit, error) {
 	return nil, nodeErrorf(schemaAst, "unexpected schema node type %T", schemaAst)
 }
 
-func (p *provParser) lookupResourceFunc(n ast.Node, key string) (*ssa.Function, error) {
-	v := walkToKey(n, key)
-	if v == nil {
+func (p *provParser) lookupResourceFunc(f *ssa.Function, key string) (*ssa.Function, error) {
+	store := findStructFieldStore(f, resourceStructTypeName, key)
+	if store == nil {
 		return nil, nil
 	}
-
-	switch v := v.(type) {
-	case *ast.Ident:
-		f := p.pkg.Func(v.Name)
-		if f != nil && f.Blocks == nil {
-			log.Printf("[DEBUG] %s is an external function", v.Name)
-		}
-		return f, nil
-	case *ast.SelectorExpr:
-		//TODO: check imported package
-		// These are well known external funcs used in resources
-		if v.Sel.Name == "Noop" || v.Sel.Name == "RemoveFromState" {
-			return nil, nil
-		}
+	v := rootValue(store.Val)
+	// TODO: handle Noop and RemoveFromState
+	resourceFunc, ok := v.(*ssa.Function)
+	if !ok {
+		return nil, nodeErrorf(v, "unable to determine function from value of type %T", v)
 	}
-
-	return nil, nodeErrorf(v, "%s func value of type %T is not supported", key, v)
+	return resourceFunc, nil
 }
 
 func (p *provParser) buildResource(name string, rf *ssa.Function) (*Resource, error) {
-	create, err := p.lookupResourceFunc(rf.Syntax(), "Create")
+	//rf.WriteTo(os.Stdout)
+
+	create, err := p.lookupResourceFunc(rf, "Create")
 	if err != nil {
 		return nil, err
 	}
 
-	read, err := p.lookupResourceFunc(rf.Syntax(), "Read")
+	read, err := p.lookupResourceFunc(rf, "Read")
 	if err != nil {
 		return nil, err
 	}
 
-	update, err := p.lookupResourceFunc(rf.Syntax(), "Update")
+	update, err := p.lookupResourceFunc(rf, "Update")
 	if err != nil {
 		return nil, err
 	}
 
-	delete, err := p.lookupResourceFunc(rf.Syntax(), "Delete")
+	delete, err := p.lookupResourceFunc(rf, "Delete")
 	if err != nil {
 		return nil, err
 	}
 
-	exists, err := p.lookupResourceFunc(rf.Syntax(), "Exists")
+	exists, err := p.lookupResourceFunc(rf, "Exists")
 	if err != nil {
 		return nil, err
 	}
@@ -328,9 +322,18 @@ func (p *provParser) appendAttributes(attrs *[]Attribute, rf *ssa.Function, sche
 	for _, e := range schemaAst.Elts {
 		kv := e.(*ast.KeyValueExpr)
 
-		k, err := strconv.Unquote(kv.Key.(*ast.BasicLit).Value)
-		if err != nil {
-			return err
+		var (
+			k   string
+			err error
+		)
+
+		if bl, ok := kv.Key.(*ast.BasicLit); !ok {
+			return nodeErrorf(kv.Key, "expected a literal string key, got %T", kv.Key)
+		} else {
+			k, err = strconv.Unquote(bl.Value)
+			if err != nil {
+				return err
+			}
 		}
 
 		switch v := kv.Value.(type) {
