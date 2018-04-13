@@ -36,8 +36,7 @@ func (p *Provider) DataSource(name string) *Resource {
 
 // Resource represents the data for a resource or data source of the provider.
 type Resource struct {
-	Name        string
-	FuncComment string
+	Name string
 
 	Func       *ssa.Function
 	CreateFunc *ssa.Function

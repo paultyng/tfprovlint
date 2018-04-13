@@ -287,9 +287,8 @@ func (p *provParser) buildResource(name string, rf *ssa.Function) (*Resource, er
 	}
 
 	r := &Resource{
-		Name:        name,
-		FuncComment: strings.TrimSpace(skipFirstLine(rf.Syntax().(*ast.FuncDecl).Doc.Text())),
-		Func:        rf,
+		Name: name,
+		Func: rf,
 
 		CreateFunc: create,
 		ReadFunc:   read,
