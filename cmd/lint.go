@@ -39,11 +39,6 @@ func (c *lintCommand) Run(args []string) int {
 	}
 
 	paths := flags.Args()
-
-	//path := "github.com/terraform-providers/terraform-provider-azurerm/azurerm"
-	//path := "github.com/terraform-providers/terraform-provider-aws/aws"
-	//path := "github.com/terraform-providers/terraform-provider-template/template"
-
 	paths = gotool.ImportPaths(paths)
 
 	if len(paths) != 1 {
