@@ -22,6 +22,7 @@ $ tfprovlint github.com/terraform-providers/terraform-provider-aws/aws
 
 ## TODO
 
+* Finish switching to a full SSA implementation
 * Clean up debug logging
 * Allow toggling between failure vs warning on rules
 * Allow a configuration file to turn on and off rules
