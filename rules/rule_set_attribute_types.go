@@ -64,6 +64,9 @@ func useProperAttributeTypesInSet(r *provparse.Resource, att *provparse.Attribut
 	if ptr, ok := t.(*types.Pointer); ok {
 		t = ptr.Elem()
 	}
+	if named, ok := t.(*types.Named); ok {
+		t = named.Underlying()
+	}
 
 	if kinds, ok := allowedBasicKind[att.Type]; ok {
 		if basic, ok := t.(*types.Basic); ok {
