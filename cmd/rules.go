@@ -16,16 +16,23 @@ var resourceRules = map[string]ruleFactoryFunc{
 	"tfprovlint026": rules.NewNoReservedNamesRule,
 }
 
-func loadRules(only []string) map[string]ruleFactoryFunc {
-	if len(only) == 0 {
-		return resourceRules
+func loadRules(includes, excludes []string) map[string]ruleFactoryFunc {
+	var filtered map[string]ruleFactoryFunc
+	if len(includes) == 0 {
+		filtered = resourceRules
+	} else {
+		filtered = make(map[string]ruleFactoryFunc, len(includes))
+		for _, id := range includes {
+			if rule, ok := resourceRules[id]; ok {
+				filtered[id] = rule
+			}
+		}
 	}
-
-	filtered := make(map[string]ruleFactoryFunc, len(only))
-
-	for _, id := range only {
-		if rule, ok := resourceRules[id]; ok {
-			filtered[id] = rule
+	if len(excludes) > 0 {
+		for _, id := range excludes {
+			if _, ok := filtered[id]; ok {
+				delete(filtered, id)
+			}
 		}
 	}
 

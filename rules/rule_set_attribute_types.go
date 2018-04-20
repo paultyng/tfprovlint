@@ -62,6 +62,10 @@ func useProperAttributeTypesInSet(rule *resourceDataSetRule) func(r *provparse.R
 
 		argValue := ssacall.Common().Args[2]
 		argValue = ssahelp.RootValue(argValue)
+
+		// TODO: if this is a call to Get of an attribute of the same name, this is ok
+		// see the vsphere provider: github.com/terraform-providers/terraform-provider-vsphere/vsphere/resource_vsphere_virtual_disk.go
+
 		t := argValue.Type()
 		t = ssahelp.DerefType(t)
 		if named, ok := t.(*types.Named); ok {

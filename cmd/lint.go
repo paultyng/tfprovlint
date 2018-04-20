@@ -39,10 +39,12 @@ func (c *lintCommand) Synopsis() string {
 func (c *lintCommand) Run(args []string) int {
 	var resourceNames stringSliceFlags
 	var dataSourceNames stringSliceFlags
-	var onlyRules stringSliceFlags
+	var includeRules stringSliceFlags
+	var excludeRules stringSliceFlags
 
 	flags := flag.NewFlagSet("lint", flag.ContinueOnError)
-	flags.Var(&onlyRules, "r", "list of rules to run")
+	flags.Var(&includeRules, "include", "list of rules to include")
+	flags.Var(&excludeRules, "exclude", "list of rules to exclude")
 	flags.Var(&resourceNames, "rs", "list of resources to lint")
 	flags.Var(&dataSourceNames, "ds", "list of data sources to lint")
 
@@ -60,7 +62,7 @@ func (c *lintCommand) Run(args []string) int {
 		return -1
 	}
 
-	rules := loadRules(onlyRules)
+	rules := loadRules(includeRules, excludeRules)
 	results := []issueResult{}
 
 	dataSources := prov.DataSources

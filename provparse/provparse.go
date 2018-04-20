@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/build"
 	"go/parser"
+	"go/types"
 	"log"
 	"os"
 	"path/filepath"
@@ -70,6 +71,11 @@ func Package(path string) (*Provider, error) {
 			Build:      &build.Default,
 			ParserMode: parser.ParseComments,
 			ImportPkgs: map[string]bool{},
+			TypeChecker: types.Config{
+				Error: func(err error) {
+					// this removes the default output of the TypeChecker error handling
+				},
+			},
 		}
 		conf.ImportPkgs[path] = true
 		var err error
