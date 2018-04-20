@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -52,6 +53,9 @@ func TestFunctionCalls(t *testing.T) {
 			for k := range actualPos {
 				actual = append(actual, k)
 			}
+
+			sort.Strings(actual)
+			sort.Strings(c.expected)
 
 			if !reflect.DeepEqual(c.expected, actual) {
 				t.Fatalf("expected %q does not match %q", c.expected, actual)
