@@ -11,7 +11,6 @@ import (
 
 	"github.com/paultyng/tfprovlint/lint"
 	"github.com/paultyng/tfprovlint/provparse"
-	"github.com/paultyng/tfprovlint/rules"
 )
 
 type lintCommand struct {
@@ -40,9 +39,11 @@ func (c *lintCommand) Synopsis() string {
 func (c *lintCommand) Run(args []string) int {
 	var resourceNames stringSliceFlags
 	var dataSourceNames stringSliceFlags
+	var onlyRules stringSliceFlags
 
 	flags := flag.NewFlagSet("lint", flag.ContinueOnError)
-	flags.Var(&resourceNames, "r", "list of resources to lint")
+	flags.Var(&onlyRules, "r", "list of rules to run")
+	flags.Var(&resourceNames, "rs", "list of resources to lint")
 	flags.Var(&dataSourceNames, "ds", "list of data sources to lint")
 
 	err := flags.Parse(args)
@@ -59,13 +60,14 @@ func (c *lintCommand) Run(args []string) int {
 		return -1
 	}
 
+	rules := loadRules(onlyRules)
 	results := []issueResult{}
 
 	dataSources := prov.DataSources
 	if filtered {
 		dataSources = filterResources(dataSources, dataSourceNames)
 	}
-	newResults, err := evaluateRules("data", resourceRules, dataSources)
+	newResults, err := evaluateRules(true, rules, dataSources)
 	if err != nil {
 		c.UI.Error(err.Error())
 		return -1
@@ -76,7 +78,7 @@ func (c *lintCommand) Run(args []string) int {
 	if filtered {
 		resources = filterResources(resources, resourceNames)
 	}
-	newResults, err = evaluateRules("resource", resourceRules, resources)
+	newResults, err = evaluateRules(false, rules, resources)
 	if err != nil {
 		c.UI.Error(err.Error())
 		return -1
@@ -85,7 +87,12 @@ func (c *lintCommand) Run(args []string) int {
 
 	c.UI.Output("")
 	for _, res := range results {
-		line := "[" + color.WhiteString("%s.%s", res.ResourceType, res.Resource.Name) + "] " +
+		prefix := ""
+		if res.ReadOnly {
+			prefix = "data."
+		}
+
+		line := "[" + color.WhiteString("%s%s", prefix, res.Resource.Name) + "] " +
 			"[" + color.RedString("%s", res.RuleID) + "] " +
 			fmt.Sprintf("%s: ", prov.Fset.Position(res.Issue.Pos)) +
 			color.WhiteString("%s", res.Issue.Message)
@@ -106,21 +113,11 @@ func LintCommandFactory(ui cli.Ui) cli.CommandFactory {
 	}
 }
 
-type ruleFactoryFunc func() lint.ResourceRule
-
-var resourceRules = map[string]ruleFactoryFunc{
-	"tfprovlint001": rules.NewNoSetIdInDeleteFuncRule,
-	"tfprovlint002": rules.NewSetAttributeNameExistsRule,
-	"tfprovlint003": rules.NewUseProperAttributeTypesInSetRule,
-	// "tfprovlint004": err check sets on complex types
-	"tfprovlint005": rules.NewDoNotDereferencePointersInSetRule,
-}
-
 type issueResult struct {
-	ResourceType string // "resource" or "data source"
-	Resource     provparse.Resource
-	RuleID       string
-	Issue        lint.Issue
+	ReadOnly bool
+	Resource provparse.Resource
+	RuleID   string
+	Issue    lint.Issue
 }
 
 func parseProvider(paths []string) (*provparse.Provider, error) {
@@ -153,21 +150,21 @@ func filterResources(resources []provparse.Resource, resourceNames []string) []p
 	return filtered
 }
 
-func evaluateRules(resourceType string, rules map[string]ruleFactoryFunc, resources []provparse.Resource) ([]issueResult, error) {
+func evaluateRules(readOnly bool, rules map[string]ruleFactoryFunc, resources []provparse.Resource) ([]issueResult, error) {
 	results := []issueResult{}
 	for _, r := range resources {
-		for id, factory := range resourceRules {
+		for id, factory := range rules {
 			rule := factory()
-			newIssues, err := rule.CheckResource(&r)
+			newIssues, err := rule.CheckResource(readOnly, &r)
 			if err != nil {
 				return nil, err
 			}
 			for _, iss := range newIssues {
 				results = append(results, issueResult{
-					ResourceType: resourceType,
-					Issue:        iss,
-					Resource:     r,
-					RuleID:       id,
+					ReadOnly: readOnly,
+					Issue:    iss,
+					Resource: r,
+					RuleID:   id,
 				})
 			}
 

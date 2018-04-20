@@ -20,12 +20,12 @@ type callBlacklistRule struct {
 
 var _ lint.ResourceRule = &callBlacklistRule{}
 
-func (rule *callBlacklistRule) CheckResource(r *provparse.Resource) ([]lint.Issue, error) {
+func (rule *callBlacklistRule) CheckResource(readOnly bool, r *provparse.Resource) ([]lint.Issue, error) {
 	var issues []lint.Issue
 
 	// TODO: start checking all the funcs?
 
-	if r.DeleteFunc != nil {
+	if !readOnly && r.DeleteFunc != nil {
 		// if this is `schema.RemoveFromState` ignore it
 		if funcName := normalizeSSAFunctionString(r.DeleteFunc); funcName == funcRemoveFromState {
 			return nil, nil

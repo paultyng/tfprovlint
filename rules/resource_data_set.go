@@ -72,7 +72,7 @@ func (rule *resourceDataSetRule) checkResourceFunc(r *provparse.Resource, f *ssa
 	return issues, nil
 }
 
-func (rule *resourceDataSetRule) CheckResource(r *provparse.Resource) ([]lint.Issue, error) {
+func (rule *resourceDataSetRule) CheckResource(readOnly bool, r *provparse.Resource) ([]lint.Issue, error) {
 	var issues []lint.Issue
 
 	if r.ReadFunc != nil {

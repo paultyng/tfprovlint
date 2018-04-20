@@ -25,7 +25,10 @@ func NewIssuef(pos token.Pos, format string, args ...interface{}) Issue {
 
 // ResourceRule is a rule that is evaluated against resource (and data source) data.
 type ResourceRule interface {
-	CheckResource(*provparse.Resource) ([]Issue, error)
+	// CheckResource is called against every resource or data source being
+	// evaluated. readOnly is used to indicate whether its a data source or
+	// a resource.
+	CheckResource(readOnly bool, r *provparse.Resource) ([]Issue, error)
 }
 
 // ProviderRule is a rule that is evaluated against provider data.
