@@ -38,6 +38,7 @@ func TestUseProperAttributeTypesInSet(t *testing.T) {
 		{"attribute \"att\" expects a d.Set compatible with TypeBool", provparse.TypeBool, "setInt"},
 	} {
 		t.Run(fmt.Sprintf("%d %s", i, c.funcName), func(t *testing.T) {
+			r := &resourceDataSetRule{}
 			ci := lookupSetCallInstruction(useProperAttributeTypesPkg, c.funcName)
 			if ci == nil {
 				t.Fatalf("unable to find ssa.CallInstruction %q", c.funcName)
@@ -46,7 +47,7 @@ func TestUseProperAttributeTypesInSet(t *testing.T) {
 				Name: "att",
 				Type: c.attributeType,
 			}
-			actualIssues, err := useProperAttributeTypesInSet(nil, att, "att", ci)
+			actualIssues, err := useProperAttributeTypesInSet(r)(nil, att, "att", ci)
 			if err != nil {
 				t.Fatal(err)
 			}

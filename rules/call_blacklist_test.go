@@ -45,7 +45,8 @@ func TestFunctionCalls(t *testing.T) {
 		{[]string{"(*bytes.Buffer).Len"}, "foo", []string{"(*bytes.Buffer).Len"}},
 	} {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			actualPos := functionCalls(functionCallsPkg.Func(c.funcName), stringSliceToSet(c.methods))
+			r := &callBlacklistRule{}
+			actualPos := r.functionCalls(functionCallsPkg.Func(c.funcName), stringSliceToSet(c.methods))
 
 			actual := make([]string, 0, len(actualPos))
 			for k := range actualPos {
