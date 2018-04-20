@@ -24,8 +24,9 @@ func main() {
 	lintFact := cmd.LintCommandFactory(ui)
 
 	c.Commands = map[string]cli.CommandFactory{
-		// an issue with this for some reason "":     lintFact,
-		"lint": lintFact,
+		"":       lintFact, // this no longer crashes but also not matched
+		"lint":   lintFact,
+		"schema": cmd.SchemaCommandFactory(ui),
 	}
 
 	exitStatus, err := c.Run()

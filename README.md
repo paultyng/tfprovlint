@@ -3,8 +3,7 @@
 Lints Terraform provider source code for common issues.
 
 ```shell
-# note the provider subdir!
-$ tfprovlint github.com/terraform-providers/terraform-provider-aws/aws
+$ tfprovlint lint github.com/terraform-providers/terraform-provider-aws
 ```
 
 ## Rules

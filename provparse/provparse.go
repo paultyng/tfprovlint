@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"go/build"
 	"go/parser"
-	"go/types"
+	"log"
 	"os"
+	"path/filepath"
 
 	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/go/ssa"
@@ -17,35 +18,68 @@ type provParser struct {
 	pkg  *ssa.Package
 }
 
+var shouldTrace = false
+
+func init() {
+	switch os.Getenv("LOG_LVL") {
+	case "TRACE":
+		shouldTrace = true
+		//fallthrough
+	}
+}
+
+func (*provParser) tracef(format string, args ...interface{}) {
+	if shouldTrace {
+		log.Printf("[TRACE] "+format, args...)
+	}
+}
+
 // Package parses a provider package and returns the parsed data.
 func Package(path string) (*Provider, error) {
-	hadError := false
+	potentialPaths := []string{path}
 
-	conf := &loader.Config{
-		Build:      &build.Default,
-		ParserMode: parser.ParseComments,
-		ImportPkgs: map[string]bool{},
-		TypeChecker: types.Config{
-			Error: func(err error) {
-				// Only print the first error found
-				if hadError {
-					return
-				}
-				hadError = true
-				fmt.Fprintln(os.Stderr, err)
-			},
-		},
+	name := filepath.Base(path)
+	if suffix, ok := providerName(name); ok {
+		// if this is a valid provider repo name (terraform-provider-x) extract the suffix
+		name = suffix
+
+		potentialPaths = []string{
+			filepath.Join(path, "provider"),
+			filepath.Join(path, name),
+		}
 	}
-	conf.ImportPkgs[path] = true
-	prog, err := conf.Load()
-	if err != nil {
-		return nil, err
+
+	var (
+		prog       *loader.Program
+		loadedPath string
+	)
+	for _, path := range potentialPaths {
+		conf := &loader.Config{
+			Build:      &build.Default,
+			ParserMode: parser.ParseComments,
+			ImportPkgs: map[string]bool{},
+		}
+		conf.ImportPkgs[path] = true
+		var err error
+		prog, err = conf.Load()
+		if err != nil {
+			// this is gross, but the code just does an errors.New...
+			if err.Error() == "no initial packages were loaded" {
+				continue
+			}
+			return nil, err
+		}
+		loadedPath = path
+		break
+	}
+	if prog == nil {
+		return nil, fmt.Errorf("unable to determine provider package")
 	}
 	ssaProg := ssautil.CreateProgram(prog, ssa.GlobalDebug)
 	// build bodies of funcs
 	ssaProg.Build()
 
-	pkg := ssaProg.ImportedPackage(path)
+	pkg := ssaProg.ImportedPackage(loadedPath)
 	if pkg == nil {
 		return nil, fmt.Errorf("provider package not found")
 	}

@@ -56,7 +56,7 @@
   branch = "master"
   name = "github.com/mitchellh/cli"
   packages = ["."]
-  revision = "c54c85e9bd492bdba226ffdda55d4e293b79f8e8"
+  revision = "c48282d14eba4b0817ddef3f832ff8d13851aefd"
 
 [[projects]]
   name = "github.com/posener/complete"
@@ -91,6 +91,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "e6245cd85efe8bfc96653bee70ec098845d99440f97b354fa8124f68775825fe"
+  inputs-digest = "89921ebb2b41138e031ea2dfb922900e3b212cd33425eaf3cfd517eb40b5993c"
   solver-name = "gps-cdcl"
   solver-version = 1
