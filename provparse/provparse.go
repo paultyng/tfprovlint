@@ -18,19 +18,31 @@ type provParser struct {
 	pkg  *ssa.Package
 }
 
-var shouldTrace = false
+var (
+	shouldTrace = false
+	shouldWarn  = false
+)
 
+// TODO: do this better!
 func init() {
 	switch os.Getenv("LOG_LVL") {
 	case "TRACE":
 		shouldTrace = true
-		//fallthrough
+		fallthrough
+	case "WARN":
+		shouldWarn = true
 	}
 }
 
 func (*provParser) tracef(format string, args ...interface{}) {
 	if shouldTrace {
 		log.Printf("[TRACE] "+format, args...)
+	}
+}
+
+func (*provParser) warnf(format string, args ...interface{}) {
+	if shouldWarn {
+		log.Printf("[WARN] "+format, args...)
 	}
 }
 

@@ -11,7 +11,7 @@ import (
 )
 
 func NewDoNotDereferencePointersInSetRule() lint.ResourceRule {
-	return &resourceDataSet{
+	return &resourceDataSetRule{
 		CheckAttributeSet: doNotDereferencePointersInSet,
 	}
 }
@@ -20,23 +20,26 @@ func doNotDereferencePointersInSet(r *provparse.Resource, att *provparse.Attribu
 	var issues []lint.Issue
 
 	argValue := ssacall.Common().Args[2]
-	argValue = ssahelp.RootValue(argValue)
-	switch argValue := argValue.(type) {
-	case *ssa.UnOp:
-		if argValue.Op == token.MUL {
-			// skip field and index addr derefs as they are pointer lookups (I think?)
-			// although this feels like it would break down at some point?
-			switch argValue.X.(type) {
-			case *ssa.FieldAddr:
-				return nil, nil
-			case *ssa.IndexAddr:
-				return nil, nil
-			}
+	argValuePath := ssahelp.RootValuePath(argValue)
 
-			if stars := numStars(argValue.X.Type()); stars > 0 {
-				return []lint.Issue{
-					lint.NewIssuef(ssacall.Pos(), "do not dereference value for attribute %q when calling d.Set", attName),
-				}, nil
+	for _, v := range argValuePath {
+		switch v := v.(type) {
+		case *ssa.UnOp:
+			if v.Op == token.MUL {
+				// skip field and index addr derefs as they are pointer lookups (I think?)
+				// although this feels like it would break down at some point?
+				switch v.X.(type) {
+				case *ssa.FieldAddr:
+					return nil, nil
+				case *ssa.IndexAddr:
+					return nil, nil
+				}
+
+				if stars := numStars(v.X.Type()); stars > 0 {
+					return []lint.Issue{
+						lint.NewIssuef(ssacall.Pos(), "do not dereference value for attribute %q when calling d.Set", attName),
+					}, nil
+				}
 			}
 		}
 	}

@@ -25,6 +25,12 @@ func TestUseProperAttributeTypesInSet(t *testing.T) {
 		{"", provparse.TypeFloat, "setFloat64"},
 
 		{"", provparse.TypeString, "setString"},
+		{"", provparse.TypeString, "setPointerString"},
+
+		{"", provparse.TypeString, "setStructFieldString"},
+		{"", provparse.TypeString, "setStructFieldPointerString"},
+		{"", provparse.TypeString, "setPointerStructFieldString"},
+		{"", provparse.TypeString, "setPointerStructFieldPointerString"},
 
 		{"", provparse.TypeString, "setNamedString"},
 		{"", provparse.TypeInt, "setNamedInt"},
@@ -93,6 +99,31 @@ func setFloat64(d *ResourceData, val float64) {
 
 func setString(d *ResourceData, val string) {
 	d.Set("att", val)
+}
+
+func setPointerString(d *ResourceData, val *string) {
+	d.Set("att", val)
+}
+
+type MyStruct struct {
+	String string
+	PointerString *string
+}
+
+func setStructFieldString(d *ResourceData, val MyStruct) {
+	d.Set("att", val.String)
+}
+
+func setStructFieldPointerString(d *ResourceData, val MyStruct) {
+	d.Set("att", val.PointerString)
+}
+
+func setPointerStructFieldString(d *ResourceData, val *MyStruct) {
+	d.Set("att", val.String)
+}
+
+func setPointerStructFieldPointerString(d *ResourceData, val *MyStruct) {
+	d.Set("att", val.PointerString)
 }
 
 type MyString string

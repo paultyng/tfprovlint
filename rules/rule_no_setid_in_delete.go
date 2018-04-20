@@ -4,9 +4,9 @@ import "github.com/paultyng/tfprovlint/lint"
 
 func NewNoSetIdInDeleteFuncRule() lint.ResourceRule {
 	deleteBlacklist := map[string]bool{}
-	deleteBlacklist[calleeResourceDataSetId] = true
+	deleteBlacklist[funcResourceDataSetId] = true
 
-	return &callBlacklist{
+	return &callBlacklistRule{
 		IssueMessageFormat: "DeleteFunc should not call %s",
 		Delete:             deleteBlacklist,
 	}

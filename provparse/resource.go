@@ -95,6 +95,8 @@ type Attribute struct {
 
 	Attributes []Attribute
 
+	PartialParse bool
+
 	pos token.Pos
 }
 
@@ -112,6 +114,7 @@ const (
 	TypeList
 	TypeMap
 	TypeSet
+	TypeNotParsed AttributeType = -1
 )
 
 // Pos returns the location of the AST token most closely associated.

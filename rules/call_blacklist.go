@@ -10,23 +10,28 @@ import (
 	"github.com/paultyng/tfprovlint/ssahelp"
 )
 
-const (
-	calleeResourceDataSetId = "(*github.com/hashicorp/terraform/helper/schema.ResourceData).SetId"
-)
+type callBlacklistRule struct {
+	commonRule
 
-type callBlacklist struct {
 	IssueMessageFormat string
 	RuleID             string
 	Delete             map[string]bool
 }
 
-var _ lint.ResourceRule = &callBlacklist{}
+var _ lint.ResourceRule = &callBlacklistRule{}
 
-func (rule *callBlacklist) CheckResource(r *provparse.Resource) ([]lint.Issue, error) {
+func (rule *callBlacklistRule) CheckResource(r *provparse.Resource) ([]lint.Issue, error) {
 	var issues []lint.Issue
 
+	// TODO: start checking all the funcs?
+
 	if r.DeleteFunc != nil {
-		if calls := functionCalls(r.DeleteFunc, rule.Delete); len(calls) > 0 {
+		// if this is `schema.RemoveFromState` ignore it
+		if funcName := normalizeSSAFunctionString(r.DeleteFunc); funcName == funcRemoveFromState {
+			return nil, nil
+		}
+
+		if calls := rule.functionCalls(r.DeleteFunc, rule.Delete); len(calls) > 0 {
 			// it makes some of the calls, need to append issues
 			for call, pos := range calls {
 				issues = append(issues, lint.NewIssuef(pos, rule.IssueMessageFormat, call))
@@ -37,7 +42,7 @@ func (rule *callBlacklist) CheckResource(r *provparse.Resource) ([]lint.Issue, e
 	return issues, nil
 }
 
-func functionCalls(f *ssa.Function, callList map[string]bool) map[string]token.Pos {
+func (rule *callBlacklistRule) functionCalls(f *ssa.Function, callList map[string]bool) map[string]token.Pos {
 	calls := map[string]token.Pos{}
 
 	ssahelp.InspectInstructions(ssahelp.FuncInstructions(f), func(ins ssa.Instruction) bool {
@@ -48,7 +53,7 @@ func functionCalls(f *ssa.Function, callList map[string]bool) map[string]token.P
 
 		if callee := ssacall.Common().StaticCallee(); callee != nil {
 			calleeName := normalizeSSAFunctionString(callee)
-			// log.Printf("[TRACE] checking %q against list", calleeName)
+			rule.tracef("checking %q against list", calleeName)
 			if callList[calleeName] {
 				calls[calleeName] = ssacall.Pos()
 			}

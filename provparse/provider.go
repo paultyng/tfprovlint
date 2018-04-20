@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
-	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -154,10 +153,7 @@ func (p *provParser) hasResultSelectorName(f *ssa.Function, i int, pack, selecto
 	}
 
 	rt := results.At(i).Type()
-	if p, ok := rt.(*types.Pointer); ok {
-		rt = p.Elem()
-	}
-
+	rt = ssahelp.DerefType(rt)
 	switch rt := rt.(type) {
 	case *types.Named:
 		actualPkg := rt.Obj().Pkg().Path()
@@ -165,7 +161,7 @@ func (p *provParser) hasResultSelectorName(f *ssa.Function, i int, pack, selecto
 
 		return strings.HasSuffix(actualPkg, pack) && actualType == selector
 	default:
-		log.Printf("unexpected result type %T", rt)
+		p.warnf("unexpected result type %T", rt)
 	}
 	return false
 }
@@ -174,75 +170,58 @@ func (p *provParser) isResourceFunc(f *ssa.Function) bool {
 	return p.hasResultSelectorName(f, 0, pkgTFHelperSchema, "Resource")
 }
 
-func (p *provParser) lookupResourceFunc(f *ssa.Function, key string) (*ssa.Function, error) {
-	v := ssahelp.StructFieldValue(ssahelp.FuncInstructions(f), resourceStructTypeName, key)
-	if v == nil {
-		return nil, nil
-	}
-	v = ssahelp.RootValue(v)
-	// TODO: handle Noop and RemoveFromState
-	resourceFunc, ok := v.(*ssa.Function)
-	if !ok {
-		return nil, nodeErrorf(f, "unable to determine function from value of type %T", v)
-	}
-	return resourceFunc, nil
-}
-
 func (p *provParser) buildResource(name string, rf *ssa.Function) (*Resource, error) {
-	//rf.WriteTo(os.Stdout)
-
-	create, err := p.lookupResourceFunc(rf, "Create")
-	if err != nil {
-		return nil, err
-	}
-
-	read, err := p.lookupResourceFunc(rf, "Read")
-	if err != nil {
-		return nil, err
-	}
-
-	update, err := p.lookupResourceFunc(rf, "Update")
-	if err != nil {
-		return nil, err
-	}
-
-	delete, err := p.lookupResourceFunc(rf, "Delete")
-	if err != nil {
-		return nil, err
-	}
-
-	exists, err := p.lookupResourceFunc(rf, "Exists")
-	if err != nil {
-		return nil, err
-	}
-
 	r := &Resource{
 		Name: name,
 
 		pos: rf.Pos(),
-
-		CreateFunc: create,
-		ReadFunc:   read,
-		UpdateFunc: update,
-		DeleteFunc: delete,
-		ExistsFunc: exists,
 	}
 
-	schemaVal := ssahelp.StructFieldValue(ssahelp.FuncInstructions(rf), resourceStructTypeName, "Schema")
-	if schemaVal == nil {
-		// unable to find schema
-		// TODO: log warning?
+	retValue := ssahelp.ReturnValue(rf, 0)
+	retValue = ssahelp.RootValue(retValue)
+	refs := *retValue.Referrers()
+
+	for field, set := range map[string]func(*ssa.Function){
+		"Create": func(f *ssa.Function) { r.CreateFunc = f },
+		"Read":   func(f *ssa.Function) { r.ReadFunc = f },
+		"Update": func(f *ssa.Function) { r.UpdateFunc = f },
+		"Delete": func(f *ssa.Function) { r.DeleteFunc = f },
+		"Exists": func(f *ssa.Function) { r.ExistsFunc = f },
+	} {
+		f, err := ssahelp.StructFieldFuncValue(refs, resourceStructTypeName, field)
+		if err != nil {
+			switch {
+			case ssahelp.IsNoFieldAddrFound(err):
+				continue
+			case ssahelp.IsNoExpectedValueFound(err):
+				r.PartialParse = true
+				// TODO: warn here or trace or something
+				continue
+			default:
+				return nil, wrapNodeErrorf(err, rf, "unable to determine resource func %q", field)
+			}
+		}
+		set(f)
+	}
+
+	schemaVal, err := ssahelp.StructFieldValue(refs, resourceStructTypeName, "Schema")
+	if err != nil {
+		if !ssahelp.IsNoFieldAddrFound(err) {
+			return nil, wrapNodeErrorf(err, rf, "unable to find resource schema")
+		}
+		p.tracef("unable to find schema: %s", err.Error())
 		r.PartialParse = true
 		return r, nil
 	}
 	schemaVal = ssahelp.RootValue(schemaVal)
-
 	attrs := []Attribute{}
-	err = p.appendAttributes(&attrs, schemaVal)
+	partial, err := p.appendAttributes(&attrs, schemaVal)
 	if err != nil {
-		return nil, fmt.Errorf("error with attributes for %q: %s", name, err)
+		return nil, wrapNodeErrorf(err, schemaVal, "error with attributes for %q", name)
 	}
-
+	if partial {
+		r.PartialParse = true
+	}
 	sort.Slice(attrs, func(i, j int) bool {
 		return attrs[i].Name < attrs[j].Name
 	})
@@ -251,95 +230,189 @@ func (p *provParser) buildResource(name string, rf *ssa.Function) (*Resource, er
 	return r, nil
 }
 
-func (p *provParser) appendAttributes(attrs *[]Attribute, schemaVal ssa.Value) error {
+func (p *provParser) appendAttributes(attrs *[]Attribute, schemaVal ssa.Value) (bool, error) {
+	switch v := schemaVal.(type) {
+	case *ssa.Alloc:
+		allocType := v.Type()
+		allocType = ssahelp.DerefType(allocType)
+		switch {
+		case ssahelp.TypeMatch(allocType, resourceStructTypeName):
+			var err error
+			schemaVal, err = ssahelp.StructFieldValue(*v.Referrers(), resourceStructTypeName, "Schema")
+			if err != nil {
+				switch {
+				case ssahelp.IsNoExpectedValueFound(err):
+					p.tracef("unexpected value type when searching for attributes: %s", err.Error())
+					return false, nil
+				case ssahelp.IsNoFieldAddrFound(err):
+					fallthrough
+				default:
+					// this is a problem, no assignment found?
+					return false, wrapNodeErrorf(err, v, "unable to find resource Schema field")
+				}
+			}
+			schemaVal = ssahelp.RootValue(schemaVal)
+		case ssahelp.TypeMatch(allocType, schemaStructTypeName):
+			//this is single type Elem, just return
+			return false, nil
+		}
+	case *ssa.MakeMap:
+		//do nothing
+	}
+
 	makeMap, ok := schemaVal.(*ssa.MakeMap)
 	if !ok {
-		return nodeErrorf(schemaVal, "unable to find the MakeMap, found %T instead", schemaVal)
+		p.tracef("expected MakeMap but found %T: %v", schemaVal, schemaVal)
+		return true, nil
 	}
 
 	refs := makeMap.Referrers()
 	if refs == nil {
-		return nil
+		p.tracef("no referrers on MakeMap")
+		return true, nil
 	}
 
+	partial := false
 	for _, ref := range *refs {
 		mapUpdate, ok := ref.(*ssa.MapUpdate)
 		if !ok {
 			continue
 		}
-
 		keyVal := ssahelp.RootValue(mapUpdate.Key)
-		cons, ok := keyVal.(*ssa.Const)
-		if !ok {
-			return nodeErrorf(keyVal, "unable to determine Schema key for %T", keyVal)
-		}
-		attName, err := strconv.Unquote(cons.Value.ExactString())
-		if err != nil {
-			return wrapNodeErrorf(err, cons, "error unquoting key")
+		var attName string
+		switch keyVal := keyVal.(type) {
+		case *ssa.Const:
+			var err error
+			attName, err = strconv.Unquote(keyVal.Value.ExactString())
+			if err != nil {
+				return false, wrapNodeErrorf(err, keyVal, "error unquoting key")
+			}
+		case *ssa.Next:
+			p.tracef("ignoring iterator Next when looking up key, dynamic assignment")
+			partial = true
+			continue
+		default:
+			return false, nodeErrorf(keyVal, "unable to determine Schema key for %T", keyVal)
 		}
 
 		mapUpdateVal := ssahelp.RootValue(mapUpdate.Value)
 		att, err := p.buildAttribute(attName, mapUpdateVal)
 		if err != nil {
-			return wrapNodeErrorf(err, mapUpdate, "unable to build attribute %q", attName)
+			return false, wrapNodeErrorf(err, mapUpdate, "unable to build attribute %q", attName)
 		}
 		*attrs = append(*attrs, att)
 	}
 
-	return nil
+	return partial, nil
 }
 
 func (p *provParser) buildAttribute(name string, v ssa.Value) (Attribute, error) {
 	refs := *v.Referrers()
 	att := Attribute{
-		Name:        name,
-		Description: strings.TrimSpace(ssahelp.StructFieldStringValue(refs, schemaStructTypeName, "Description")),
-		Required:    ssahelp.StructFieldBoolValue(refs, schemaStructTypeName, "Required"),
-		Optional:    ssahelp.StructFieldBoolValue(refs, schemaStructTypeName, "Optional"),
-		Computed:    ssahelp.StructFieldBoolValue(refs, schemaStructTypeName, "Computed"),
-		Type:        TypeInvalid,
+		Name: name,
+		Type: TypeInvalid,
 
 		pos: v.Pos(),
 	}
-
-	typeVal := ssahelp.StructFieldValue(refs, schemaStructTypeName, "Type")
-	if typeVal == nil {
-		return Attribute{}, nodeErrorf(v, "unable to extract Schema.Type for attribute %q", name)
-	}
-	typeVal = ssahelp.RootValue(typeVal)
-	cst, ok := typeVal.(*ssa.Const)
-	if !ok {
-		return Attribute{}, nodeErrorf(typeVal, "unable to find Type const %T", typeVal)
-	}
-
-	switch AttributeType(cst.Int64()) {
-	case TypeBool:
-		att.Type = TypeBool
-	case TypeInt:
-		att.Type = TypeInt
-	case TypeFloat:
-		att.Type = TypeFloat
-	case TypeString:
-		att.Type = TypeString
-	case TypeList:
-		att.Type = TypeList
-	case TypeMap:
-		att.Type = TypeMap
-	case TypeSet:
-		att.Type = TypeSet
-	default:
-		return Attribute{}, nodeErrorf(cst, "unexpected type %q", cst.Value.ExactString())
+	if v, err := ssahelp.StructFieldStringValue(refs, schemaStructTypeName, "Description"); err != nil {
+		switch {
+		case ssahelp.IsNoFieldAddrFound(err):
+			p.tracef("no description found")
+		case ssahelp.IsNoExpectedValueFound(err):
+			p.tracef("unexpected value found for %q Description: %s", name, err.Error())
+			att.PartialParse = true
+		default:
+			return Attribute{}, wrapNodeErrorf(err, &att, "unable to determine description")
+		}
+	} else {
+		att.Description = v
 	}
 
-	schemaVal := ssahelp.StructFieldValue(refs, schemaStructTypeName, "Schema")
-	if schemaVal != nil {
-		schemaVal = ssahelp.RootValue(schemaVal)
+	for field, set := range map[string]func(bool){
+		"Required": func(v bool) { att.Required = v },
+		"Computed": func(v bool) { att.Computed = v },
+		"Optional": func(v bool) { att.Optional = v },
+	} {
+		v, err := ssahelp.StructFieldBoolValue(refs, schemaStructTypeName, field)
+		if err != nil {
+			switch {
+			case ssahelp.IsNoFieldAddrFound(err):
+				continue
+			case ssahelp.IsNoExpectedValueFound(err):
+				p.tracef("unexpected value found for %q %s: %s", name, field, err.Error())
+				att.PartialParse = true
+				continue
+			default:
+				return Attribute{}, wrapNodeErrorf(err, &att, "unable to determine bool value for %q", field)
+			}
+		}
+		set(v)
+	}
 
-		attrs := []Attribute{}
-		if err := p.appendAttributes(&attrs, schemaVal); err != nil {
-			return Attribute{}, wrapNodeErrorf(err, schemaVal, "error with attributes for %q", name)
+	typeVal, err := ssahelp.StructFieldValue(refs, schemaStructTypeName, "Type")
+	if err != nil {
+		switch {
+		case ssahelp.IsNoFieldAddrFound(err):
+			// weirdly couldn't find type here
+			att.PartialParse = true
+			att.Type = TypeNotParsed
+		case ssahelp.IsNoExpectedValueFound(err):
+			p.tracef("unexpected value found for %q Type: %s", name, err.Error())
+			att.PartialParse = true
+			att.Type = TypeNotParsed
+		default:
+			return Attribute{}, wrapNodeErrorf(err, v, "unable to extract Schema.Type for attribute %q", name)
+		}
+	} else {
+		typeVal = ssahelp.RootValue(typeVal)
+		cst, ok := typeVal.(*ssa.Const)
+		if !ok {
+			return Attribute{}, nodeErrorf(typeVal, "unable to find Type const %T", typeVal)
 		}
 
+		switch AttributeType(cst.Int64()) {
+		case TypeBool:
+			att.Type = TypeBool
+		case TypeInt:
+			att.Type = TypeInt
+		case TypeFloat:
+			att.Type = TypeFloat
+		case TypeString:
+			att.Type = TypeString
+		case TypeList:
+			att.Type = TypeList
+		case TypeMap:
+			att.Type = TypeMap
+		case TypeSet:
+			att.Type = TypeSet
+		default:
+			return Attribute{}, nodeErrorf(cst, "unexpected type %q", cst.Value.ExactString())
+		}
+	}
+
+	childrenFieldName := "Schema"
+	if att.Type == TypeList || att.Type == TypeSet {
+		childrenFieldName = "Elem"
+	}
+
+	schemaVal, err := ssahelp.StructFieldValue(refs, schemaStructTypeName, childrenFieldName)
+	if err != nil {
+		if !ssahelp.IsNoFieldAddrFound(err) {
+			return Attribute{}, wrapNodeErrorf(err, v, "error looking for children")
+		}
+		schemaVal = nil
+	}
+
+	if schemaVal != nil {
+		schemaVal = ssahelp.RootValue(schemaVal)
+		attrs := []Attribute{}
+		partial, err := p.appendAttributes(&attrs, schemaVal)
+		if err != nil {
+			return Attribute{}, wrapNodeErrorf(err, schemaVal, "error with attributes for %q", name)
+		}
+		if partial {
+			att.PartialParse = true
+		}
 		sort.Slice(attrs, func(i, j int) bool {
 			return attrs[i].Name < attrs[j].Name
 		})

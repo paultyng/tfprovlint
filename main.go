@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/mitchellh/cli"
+
 	"github.com/paultyng/tfprovlint/cmd"
 )
 

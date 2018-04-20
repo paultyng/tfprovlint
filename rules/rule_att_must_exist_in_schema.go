@@ -8,7 +8,7 @@ import (
 )
 
 func NewSetAttributeNameExistsRule() lint.ResourceRule {
-	return &resourceDataSet{
+	return &resourceDataSetRule{
 		CheckAttributeSet: setAttributeNameExists,
 	}
 }

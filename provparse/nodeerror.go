@@ -18,11 +18,11 @@ func (err *posError) Error() string {
 }
 
 func (err *posError) cause() *posError {
-	var innerMost *posError
-	for posErr := err; posErr != nil; posErr, _ = posErr.inner.(*posError) {
-		innerMost = posErr
+	posErr, ok := err.inner.(*posError)
+	if ok {
+		return posErr.cause()
 	}
-	return innerMost
+	return err
 }
 
 func (err *posError) Position() token.Pos {

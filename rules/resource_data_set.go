@@ -2,7 +2,6 @@ package rules
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 
 	"golang.org/x/tools/go/ssa"
@@ -12,17 +11,15 @@ import (
 	"github.com/paultyng/tfprovlint/ssahelp"
 )
 
-const (
-	setCallee = "(*github.com/hashicorp/terraform/helper/schema.ResourceData).Set"
-)
+type resourceDataSetRule struct {
+	commonRule
 
-type resourceDataSet struct {
 	CheckAttributeSet func(*provparse.Resource, *provparse.Attribute, string, ssa.CallInstruction) ([]lint.Issue, error)
 }
 
-var _ lint.ResourceRule = &resourceDataSet{}
+var _ lint.ResourceRule = &resourceDataSetRule{}
 
-func (rule *resourceDataSet) checkResourceFunc(r *provparse.Resource, f *ssa.Function) ([]lint.Issue, error) {
+func (rule *resourceDataSetRule) checkResourceFunc(r *provparse.Resource, f *ssa.Function) ([]lint.Issue, error) {
 	var issues []lint.Issue
 	var inspectErr error
 	ssahelp.InspectInstructions(ssahelp.FuncInstructions(f), func(ins ssa.Instruction) bool {
@@ -34,7 +31,7 @@ func (rule *resourceDataSet) checkResourceFunc(r *provparse.Resource, f *ssa.Fun
 		if callee := ssacall.Common().StaticCallee(); callee != nil {
 			calleeName := normalizeSSAFunctionString(callee)
 
-			if calleeName == setCallee {
+			if calleeName == funcResourceDataSet {
 				// look at the set!
 				if len(ssacall.Common().Args) != 3 {
 					inspectErr = fmt.Errorf("incorrect args count for ResourceData.Set call: %d", len(ssacall.Common().Args))
@@ -54,7 +51,7 @@ func (rule *resourceDataSet) checkResourceFunc(r *provparse.Resource, f *ssa.Fun
 					}
 				}
 				if attName == "" {
-					log.Printf("[WARN] unable to determine what attribute is being set in %s", r.ReadFunc.Name())
+					rule.warnf("unable to determine what attribute is being set in %s", r.ReadFunc.Name())
 					return true
 				}
 				att := r.Attribute(attName)
@@ -75,7 +72,7 @@ func (rule *resourceDataSet) checkResourceFunc(r *provparse.Resource, f *ssa.Fun
 	return issues, nil
 }
 
-func (rule *resourceDataSet) CheckResource(r *provparse.Resource) ([]lint.Issue, error) {
+func (rule *resourceDataSetRule) CheckResource(r *provparse.Resource) ([]lint.Issue, error) {
 	var issues []lint.Issue
 
 	if r.ReadFunc != nil {

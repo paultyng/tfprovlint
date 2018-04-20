@@ -3,7 +3,6 @@ package rules
 import (
 	"fmt"
 	"go/types"
-	"log"
 
 	"golang.org/x/tools/go/ssa"
 
@@ -37,65 +36,68 @@ var allowedBasicKind = map[provparse.AttributeType][]types.BasicKind{
 }
 
 func NewUseProperAttributeTypesInSetRule() lint.ResourceRule {
-	return &resourceDataSet{
-		CheckAttributeSet: useProperAttributeTypesInSet,
-	}
+	r := &resourceDataSetRule{}
+
+	// TODO: probably should just make this an interface thing if i have to pass the instance anyway
+	r.CheckAttributeSet = useProperAttributeTypesInSet(r)
+
+	return r
 }
 
-func useProperAttributeTypesInSet(r *provparse.Resource, att *provparse.Attribute, attName string, ssacall ssa.CallInstruction) ([]lint.Issue, error) {
-	if att == nil {
-		// no matched attribute, skip
-		return nil, nil
-	}
+func useProperAttributeTypesInSet(rule *resourceDataSetRule) func(r *provparse.Resource, att *provparse.Attribute, attName string, ssacall ssa.CallInstruction) ([]lint.Issue, error) {
+	return func(r *provparse.Resource, att *provparse.Attribute, attName string, ssacall ssa.CallInstruction) ([]lint.Issue, error) {
+		if att == nil {
+			// no matched attribute, skip
+			return nil, nil
+		}
 
-	var wrongType = func() ([]lint.Issue, error) {
-		return []lint.Issue{
-			{
-				Pos:     ssacall.Pos(),
-				Message: fmt.Sprintf("attribute %q expects a d.Set compatible with %v", attName, att.Type),
-			},
-		}, nil
-	}
+		var wrongType = func() ([]lint.Issue, error) {
+			return []lint.Issue{
+				{
+					Pos:     ssacall.Pos(),
+					Message: fmt.Sprintf("attribute %q expects a d.Set compatible with %v", attName, att.Type),
+				},
+			}, nil
+		}
 
-	argValue := ssacall.Common().Args[2]
-	argValue = ssahelp.RootValue(argValue)
-	t := argValue.Type()
+		argValue := ssacall.Common().Args[2]
+		argValue = ssahelp.RootValue(argValue)
+		t := argValue.Type()
+		t = ssahelp.DerefType(t)
+		if named, ok := t.(*types.Named); ok {
+			t = named.Underlying()
+		}
 
-	if ptr, ok := t.(*types.Pointer); ok {
-		t = ptr.Elem()
-	}
-	if named, ok := t.(*types.Named); ok {
-		t = named.Underlying()
-	}
-
-	if kinds, ok := allowedBasicKind[att.Type]; ok {
-		if basic, ok := t.(*types.Basic); ok {
-			kindFound := false
-			for _, k := range kinds {
-				if basic.Kind() == k {
-					kindFound = true
-					break
+		if kinds, ok := allowedBasicKind[att.Type]; ok {
+			if basic, ok := t.(*types.Basic); ok {
+				kindFound := false
+				for _, k := range kinds {
+					if basic.Kind() == k {
+						kindFound = true
+						break
+					}
 				}
-			}
-			if !kindFound {
-				// this is a basic but the wrong one
+				if !kindFound {
+					// this is a basic but the wrong one
+					return wrongType()
+				}
+			} else {
+				// not a basic type when attribute expects it
+				// TODO: trace output
 				return wrongType()
 			}
-		} else {
-			// not a basic type when attribute expects it
-			return wrongType()
+			return nil, nil
 		}
+
+		rule.warnf("complex set type checking not yet implemented")
+
+		// TODO: fill this in!
+		switch att.Type {
+		case provparse.TypeList:
+		case provparse.TypeSet:
+		case provparse.TypeMap:
+		}
+
 		return nil, nil
 	}
-
-	log.Printf("[WARN] complex set type checking not yet implemented")
-
-	// TODO: fill this in!
-	switch att.Type {
-	case provparse.TypeList:
-	case provparse.TypeSet:
-	case provparse.TypeMap:
-	}
-
-	return nil, nil
 }

@@ -4,13 +4,14 @@ package provparse
 
 import "strconv"
 
-const _AttributeType_name = "TypeInvalidTypeBoolTypeIntTypeFloatTypeStringTypeListTypeMapTypeSet"
+const _AttributeType_name = "TypeNotParsedTypeInvalidTypeBoolTypeIntTypeFloatTypeStringTypeListTypeMapTypeSet"
 
-var _AttributeType_index = [...]uint8{0, 11, 19, 26, 35, 45, 53, 60, 67}
+var _AttributeType_index = [...]uint8{0, 13, 24, 32, 39, 48, 58, 66, 73, 80}
 
 func (i AttributeType) String() string {
+	i -= -1
 	if i < 0 || i >= AttributeType(len(_AttributeType_index)-1) {
-		return "AttributeType(" + strconv.FormatInt(int64(i), 10) + ")"
+		return "AttributeType(" + strconv.FormatInt(int64(i+-1), 10) + ")"
 	}
 	return _AttributeType_name[_AttributeType_index[i]:_AttributeType_index[i+1]]
 }

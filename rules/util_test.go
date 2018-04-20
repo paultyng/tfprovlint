@@ -8,9 +8,10 @@ import (
 	"go/types"
 	"testing"
 
-	"github.com/paultyng/tfprovlint/lint"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
+
+	"github.com/paultyng/tfprovlint/lint"
 )
 
 func assertIssueMsg(t *testing.T, expectedMsg string, issues []lint.Issue) {
