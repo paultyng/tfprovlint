@@ -1,5 +1,7 @@
 # TF Provider Linter
 
+[![Build Status](https://travis-ci.org/paultyng/tfprovlint.svg?branch=master)](https://travis-ci.org/paultyng/tfprovlint)
+
 Lints Terraform provider source code for common issues.
 
 ```shell
