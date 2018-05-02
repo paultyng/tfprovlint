@@ -26,11 +26,22 @@ var _ lint.ResourceRule = &callBlacklistRule{}
 func (rule *callBlacklistRule) CheckResource(readOnly bool, r *provparse.Resource) ([]lint.Issue, error) {
 	var issues []lint.Issue
 
+	// Prevent duplicate issues
+	existingCallPos := map[string]map[token.Pos]bool{}
+
 	if !readOnly && r.CreateFunc != nil {
 		if calls := rule.functionCalls(r.CreateFunc, rule.Create); len(calls) > 0 {
 			// it makes some of the calls, need to append issues
 			for call, positions := range calls {
 				for _, pos := range positions {
+					if _, ok := existingCallPos[call]; !ok {
+						existingCallPos[call] = map[token.Pos]bool{pos: true}
+						continue
+					}
+					if existingCallPos[call][pos] {
+						continue
+					}
+					existingCallPos[call][pos] = true
 					issues = append(issues, lint.NewIssuef(pos, rule.IssueMessageFormat, call))
 				}
 			}
@@ -47,6 +58,14 @@ func (rule *callBlacklistRule) CheckResource(readOnly bool, r *provparse.Resourc
 			// it makes some of the calls, need to append issues
 			for call, positions := range calls {
 				for _, pos := range positions {
+					if _, ok := existingCallPos[call]; !ok {
+						existingCallPos[call] = map[token.Pos]bool{pos: true}
+						continue
+					}
+					if existingCallPos[call][pos] {
+						continue
+					}
+					existingCallPos[call][pos] = true
 					issues = append(issues, lint.NewIssuef(pos, rule.IssueMessageFormat, call))
 				}
 			}
@@ -58,6 +77,14 @@ func (rule *callBlacklistRule) CheckResource(readOnly bool, r *provparse.Resourc
 			// it makes some of the calls, need to append issues
 			for call, positions := range calls {
 				for _, pos := range positions {
+					if _, ok := existingCallPos[call]; !ok {
+						existingCallPos[call] = map[token.Pos]bool{pos: true}
+						continue
+					}
+					if existingCallPos[call][pos] {
+						continue
+					}
+					existingCallPos[call][pos] = true
 					issues = append(issues, lint.NewIssuef(pos, rule.IssueMessageFormat, call))
 				}
 			}
@@ -69,6 +96,14 @@ func (rule *callBlacklistRule) CheckResource(readOnly bool, r *provparse.Resourc
 			// it makes some of the calls, need to append issues
 			for call, positions := range calls {
 				for _, pos := range positions {
+					if _, ok := existingCallPos[call]; !ok {
+						existingCallPos[call] = map[token.Pos]bool{pos: true}
+						continue
+					}
+					if existingCallPos[call][pos] {
+						continue
+					}
+					existingCallPos[call][pos] = true
 					issues = append(issues, lint.NewIssuef(pos, rule.IssueMessageFormat, call))
 				}
 			}
