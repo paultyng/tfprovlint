@@ -40,6 +40,7 @@ $ tfprovlint lint github.com/terraform-providers/terraform-provider-aws
 | tfprovlint026 | Do not use reserved field names | Resource |  |
 | tfprovlint027 | SDK version is less than 0.11 |  | not yet implemented |
 | tfprovlint028 | Do not log resource data values |  | not yet implemented |
+| tfprovlint029 | Resource functions should call `fmt.Errorf` instead of `errwrap.Wrapf` |  |  |
 
 <!-- TODO: add rules from the importer's InternalValidate -->
 
