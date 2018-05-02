@@ -17,6 +17,7 @@ type callBlacklistRule struct {
 	RuleID             string
 	Create             map[string]bool
 	Delete             map[string]bool
+	Exists             map[string]bool
 	Read               map[string]bool
 	Update             map[string]bool
 }
@@ -55,6 +56,25 @@ func (rule *callBlacklistRule) CheckResource(readOnly bool, r *provparse.Resourc
 		}
 
 		if calls := rule.functionCalls(r.DeleteFunc, rule.Delete); len(calls) > 0 {
+			// it makes some of the calls, need to append issues
+			for call, positions := range calls {
+				for _, pos := range positions {
+					if _, ok := existingCallPos[call]; !ok {
+						existingCallPos[call] = map[token.Pos]bool{pos: true}
+						continue
+					}
+					if existingCallPos[call][pos] {
+						continue
+					}
+					existingCallPos[call][pos] = true
+					issues = append(issues, lint.NewIssuef(pos, rule.IssueMessageFormat, call))
+				}
+			}
+		}
+	}
+
+	if !readOnly && r.ExistsFunc != nil {
+		if calls := rule.functionCalls(r.ExistsFunc, rule.Exists); len(calls) > 0 {
 			// it makes some of the calls, need to append issues
 			for call, positions := range calls {
 				for _, pos := range positions {
