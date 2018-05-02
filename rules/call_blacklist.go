@@ -73,7 +73,7 @@ func (rule *callBlacklistRule) CheckResource(readOnly bool, r *provparse.Resourc
 		}
 	}
 
-	if !readOnly && r.ExistsFunc != nil {
+	if r.ExistsFunc != nil {
 		if calls := rule.functionCalls(r.ExistsFunc, rule.Exists); len(calls) > 0 {
 			// it makes some of the calls, need to append issues
 			for call, positions := range calls {
@@ -92,7 +92,7 @@ func (rule *callBlacklistRule) CheckResource(readOnly bool, r *provparse.Resourc
 		}
 	}
 
-	if !readOnly && r.ReadFunc != nil {
+	if r.ReadFunc != nil {
 		if calls := rule.functionCalls(r.ReadFunc, rule.Read); len(calls) > 0 {
 			// it makes some of the calls, need to append issues
 			for call, positions := range calls {
