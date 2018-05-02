@@ -15,7 +15,10 @@ type callBlacklistRule struct {
 
 	IssueMessageFormat string
 	RuleID             string
+	Create             map[string]bool
 	Delete             map[string]bool
+	Read               map[string]bool
+	Update             map[string]bool
 }
 
 var _ lint.ResourceRule = &callBlacklistRule{}
@@ -23,7 +26,16 @@ var _ lint.ResourceRule = &callBlacklistRule{}
 func (rule *callBlacklistRule) CheckResource(readOnly bool, r *provparse.Resource) ([]lint.Issue, error) {
 	var issues []lint.Issue
 
-	// TODO: start checking all the funcs?
+	if !readOnly && r.CreateFunc != nil {
+		if calls := rule.functionCalls(r.CreateFunc, rule.Create); len(calls) > 0 {
+			// it makes some of the calls, need to append issues
+			for call, positions := range calls {
+				for _, pos := range positions {
+					issues = append(issues, lint.NewIssuef(pos, rule.IssueMessageFormat, call))
+				}
+			}
+		}
+	}
 
 	if !readOnly && r.DeleteFunc != nil {
 		// if this is `schema.RemoveFromState` ignore it
@@ -33,8 +45,32 @@ func (rule *callBlacklistRule) CheckResource(readOnly bool, r *provparse.Resourc
 
 		if calls := rule.functionCalls(r.DeleteFunc, rule.Delete); len(calls) > 0 {
 			// it makes some of the calls, need to append issues
-			for call, pos := range calls {
-				issues = append(issues, lint.NewIssuef(pos, rule.IssueMessageFormat, call))
+			for call, positions := range calls {
+				for _, pos := range positions {
+					issues = append(issues, lint.NewIssuef(pos, rule.IssueMessageFormat, call))
+				}
+			}
+		}
+	}
+
+	if !readOnly && r.ReadFunc != nil {
+		if calls := rule.functionCalls(r.ReadFunc, rule.Read); len(calls) > 0 {
+			// it makes some of the calls, need to append issues
+			for call, positions := range calls {
+				for _, pos := range positions {
+					issues = append(issues, lint.NewIssuef(pos, rule.IssueMessageFormat, call))
+				}
+			}
+		}
+	}
+
+	if !readOnly && r.UpdateFunc != nil {
+		if calls := rule.functionCalls(r.UpdateFunc, rule.Update); len(calls) > 0 {
+			// it makes some of the calls, need to append issues
+			for call, positions := range calls {
+				for _, pos := range positions {
+					issues = append(issues, lint.NewIssuef(pos, rule.IssueMessageFormat, call))
+				}
 			}
 		}
 	}
@@ -42,8 +78,8 @@ func (rule *callBlacklistRule) CheckResource(readOnly bool, r *provparse.Resourc
 	return issues, nil
 }
 
-func (rule *callBlacklistRule) functionCalls(f *ssa.Function, callList map[string]bool) map[string]token.Pos {
-	calls := map[string]token.Pos{}
+func (rule *callBlacklistRule) functionCalls(f *ssa.Function, callList map[string]bool) map[string][]token.Pos {
+	calls := map[string][]token.Pos{}
 
 	ssahelp.InspectInstructions(ssahelp.FuncInstructions(f), func(ins ssa.Instruction) bool {
 		ssacall, ok := ins.(ssa.CallInstruction)
@@ -55,7 +91,7 @@ func (rule *callBlacklistRule) functionCalls(f *ssa.Function, callList map[strin
 			calleeName := normalizeSSAFunctionString(callee)
 			rule.tracef("checking %q against list", calleeName)
 			if callList[calleeName] {
-				calls[calleeName] = ssacall.Pos()
+				calls[calleeName] = append(calls[calleeName], ssacall.Pos())
 			}
 		}
 
