@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/kisielk/gotool"
@@ -41,12 +42,14 @@ func (c *lintCommand) Run(args []string) int {
 	var dataSourceNames stringSliceFlags
 	var includeRules stringSliceFlags
 	var excludeRules stringSliceFlags
+	var stripGoPackagePath bool
 
 	flags := flag.NewFlagSet("lint", flag.ContinueOnError)
 	flags.Var(&includeRules, "include", "list of rules to include")
 	flags.Var(&excludeRules, "exclude", "list of rules to exclude")
 	flags.Var(&resourceNames, "rs", "list of resources to lint")
 	flags.Var(&dataSourceNames, "ds", "list of data sources to lint")
+	flags.BoolVar(&stripGoPackagePath, "strip-go-package-path", false, "strip Go package path from filenames")
 
 	err := flags.Parse(args)
 	if err != nil {
@@ -89,15 +92,24 @@ func (c *lintCommand) Run(args []string) int {
 
 	c.UI.Output("")
 	for _, res := range results {
-		prefix := ""
+		resourcePrefix := ""
 		if res.ReadOnly {
-			prefix = "data."
+			resourcePrefix = "data."
 		}
 
-		line := "[" + color.WhiteString("%s%s", prefix, res.Resource.Name) + "] " +
-			"[" + color.RedString("%s", res.RuleID) + "] " +
-			fmt.Sprintf("%s: ", prov.Fset.Position(res.Issue.Pos)) +
-			color.WhiteString("%s", res.Issue.Message)
+		position := prov.Fset.Position(res.Issue.Pos).String()
+		if stripGoPackagePath {
+			packagePath := flags.Args()[0]
+			// Full filenames are /GOPATH/PACKAGEPATH/filename:line:column
+			positionParts := strings.Split(position, packagePath)
+			position = strings.TrimPrefix(positionParts[1], "/")
+		}
+
+		resource := color.WhiteString("%s%s", resourcePrefix, res.Resource.Name)
+		ruleID := color.RedString("%s", res.RuleID)
+		message := color.WhiteString("%s", res.Issue.Message)
+
+		line := fmt.Sprintf("[%s] [%s] %s: %s", resource, ruleID, position, message)
 
 		c.UI.Output(line)
 	}
