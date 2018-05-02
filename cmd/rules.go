@@ -14,6 +14,7 @@ var resourceRules = map[string]ruleFactoryFunc{
 	// "tfprovlint004": err check sets on complex types
 	"tfprovlint005": rules.NewDoNotDereferencePointersInSetRule,
 	"tfprovlint026": rules.NewNoReservedNamesRule,
+	"tfprovlint029": rules.NewNoErrwrapWrapfInResourceFuncRule,
 }
 
 func loadRules(includes, excludes []string) map[string]ruleFactoryFunc {
