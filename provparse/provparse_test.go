@@ -62,7 +62,7 @@ func TestPackage_Template(t *testing.T) {
 func parsePackage(t *testing.T, path string) *provparse.Provider {
 	t.Helper()
 
-	prov, err := provparse.Package(path)
+	prov, _, err := provparse.Package(path)
 	if err != nil {
 		t.Fatalf("unable to parse package: %s", err)
 	}

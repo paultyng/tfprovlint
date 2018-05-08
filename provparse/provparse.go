@@ -48,14 +48,16 @@ func (*provParser) warnf(format string, args ...interface{}) {
 }
 
 // Package parses a provider package and returns the parsed data.
-func Package(path string) (*Provider, error) {
+func Package(path string) (*Provider, string, error) {
 	potentialPaths := []string{path}
+	parentDir := false
 
 	name := filepath.Base(path)
 	if suffix, ok := providerName(name); ok {
 		// if this is a valid provider repo name (terraform-provider-x) extract the suffix
 		name = suffix
 
+		parentDir = true
 		potentialPaths = []string{
 			filepath.Join(path, "provider"),
 			filepath.Join(path, name),
@@ -85,13 +87,13 @@ func Package(path string) (*Provider, error) {
 			if err.Error() == "no initial packages were loaded" {
 				continue
 			}
-			return nil, err
+			return nil, "", err
 		}
 		loadedPath = path
 		break
 	}
 	if prog == nil {
-		return nil, fmt.Errorf("unable to determine provider package")
+		return nil, "", fmt.Errorf("unable to determine provider package")
 	}
 	ssaProg := ssautil.CreateProgram(prog, ssa.GlobalDebug)
 	// build bodies of funcs
@@ -99,7 +101,7 @@ func Package(path string) (*Provider, error) {
 
 	pkg := ssaProg.ImportedPackage(loadedPath)
 	if pkg == nil {
-		return nil, fmt.Errorf("provider package not found")
+		return nil, "", fmt.Errorf("provider package not found")
 	}
 
 	p := &provParser{
@@ -110,7 +112,14 @@ func Package(path string) (*Provider, error) {
 	//only one non-test package in the path
 	prov, err := p.parse()
 	if err != nil {
-		return nil, unwrapError(err, prog.Fset)
+		return nil, "", unwrapError(err, prog.Fset)
 	}
-	return prov, nil
+
+	basePath := filepath.Dir(prov.Fset.Position(prov.Pos()).Filename)
+
+	if parentDir {
+		basePath = filepath.Clean(filepath.Join(basePath, ".."))
+	}
+
+	return prov, basePath, nil
 }

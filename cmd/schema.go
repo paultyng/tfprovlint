@@ -28,7 +28,7 @@ func (c *schemaCommand) Run(args []string) int {
 		return -1
 	}
 
-	prov, err := parseProvider(flags.Args())
+	prov, _, err := parseProvider(flags.Args())
 	if err != nil {
 		c.UI.Error(err.Error())
 		return -1
