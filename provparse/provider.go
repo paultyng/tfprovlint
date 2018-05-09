@@ -1,6 +1,7 @@
 package provparse
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/types"
@@ -110,6 +111,10 @@ func (p *provParser) extractResourceFuncNames(cl *ast.CompositeLit) (map[string]
 	// if _, ok := cl.Type.(*ast.MapType); !ok {
 	// 	return error?
 	// }
+
+	if cl == nil {
+		return nil, errors.New("Unable to extract reource function names")
+	}
 
 	res := map[string]string{}
 
