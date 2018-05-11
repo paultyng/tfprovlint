@@ -111,6 +111,10 @@ func (p *provParser) extractResourceFuncNames(cl *ast.CompositeLit) (map[string]
 	// 	return error?
 	// }
 
+	if cl == nil {
+		return nil, nil
+	}
+
 	res := map[string]string{}
 
 	for _, e := range cl.Elts {
