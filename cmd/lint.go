@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"path/filepath"
 
 	"github.com/fatih/color"
 	"github.com/kisielk/gotool"
@@ -56,7 +57,7 @@ func (c *lintCommand) Run(args []string) int {
 
 	filtered := len(resourceNames) > 0 || len(dataSourceNames) > 0
 
-	prov, err := parseProvider(flags.Args())
+	prov, basePath, err := parseProvider(flags.Args())
 	if err != nil {
 		c.UI.Error(err.Error())
 		return -1
@@ -94,9 +95,18 @@ func (c *lintCommand) Run(args []string) int {
 			prefix = "data."
 		}
 
+		pos := prov.Fset.Position(res.Issue.Pos)
+		fname := pos.Filename
+		fname, err = filepath.Rel(basePath, fname)
+		if err != nil {
+			c.UI.Error(err.Error())
+			return -1
+		}
+		spos := fmt.Sprintf("%s:%d:%d", fname, pos.Line, pos.Column)
+
 		line := "[" + color.WhiteString("%s%s", prefix, res.Resource.Name) + "] " +
 			"[" + color.RedString("%s", res.RuleID) + "] " +
-			fmt.Sprintf("%s: ", prov.Fset.Position(res.Issue.Pos)) +
+			fmt.Sprintf("%s: ", spos) +
 			color.WhiteString("%s", res.Issue.Message)
 
 		c.UI.Output(line)
@@ -122,7 +132,7 @@ type issueResult struct {
 	Issue    lint.Issue
 }
 
-func parseProvider(paths []string) (*provparse.Provider, error) {
+func parseProvider(paths []string) (*provparse.Provider, string, error) {
 	paths = gotool.ImportPaths(paths)
 
 	if len(paths) != 1 {
