@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"go/token"
 	"strconv"
 
 	"golang.org/x/tools/go/ssa"
@@ -75,12 +76,21 @@ func (rule *resourceDataSetRule) checkResourceFunc(r *provparse.Resource, f *ssa
 func (rule *resourceDataSetRule) CheckResource(readOnly bool, r *provparse.Resource) ([]lint.Issue, error) {
 	var issues []lint.Issue
 
+	// Prevent duplicate issues
+	existingPos := map[token.Pos]bool{}
+
 	if r.ReadFunc != nil {
 		newIssues, err := rule.checkResourceFunc(r, r.ReadFunc)
 		if err != nil {
 			return nil, err
 		}
-		issues = append(issues, newIssues...)
+		for _, newIssue := range newIssues {
+			if existingPos[newIssue.Pos] {
+				continue
+			}
+			existingPos[newIssue.Pos] = true
+			issues = append(issues, newIssue)
+		}
 	}
 
 	// sets are mainly done in reads, but we  also  check creates and updates
@@ -89,7 +99,13 @@ func (rule *resourceDataSetRule) CheckResource(readOnly bool, r *provparse.Resou
 		if err != nil {
 			return nil, err
 		}
-		issues = append(issues, newIssues...)
+		for _, newIssue := range newIssues {
+			if existingPos[newIssue.Pos] {
+				continue
+			}
+			existingPos[newIssue.Pos] = true
+			issues = append(issues, newIssue)
+		}
 	}
 
 	if r.UpdateFunc != nil {
@@ -97,7 +113,13 @@ func (rule *resourceDataSetRule) CheckResource(readOnly bool, r *provparse.Resou
 		if err != nil {
 			return nil, err
 		}
-		issues = append(issues, newIssues...)
+		for _, newIssue := range newIssues {
+			if existingPos[newIssue.Pos] {
+				continue
+			}
+			existingPos[newIssue.Pos] = true
+			issues = append(issues, newIssue)
+		}
 	}
 
 	return issues, nil
